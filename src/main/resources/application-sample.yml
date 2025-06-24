@@ -1,0 +1,74 @@
+server:
+  port: ${GATEWAY_PORT:8080}  # 기본값 8080
+
+spring:
+  application:
+    name: ${SPRING_APP_NAME:gateway-server}
+
+  cloud:
+    gateway:
+      default-filters:
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: ${RATE_LIMIT_REPLENISH:10}
+            redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST:20}
+            key-resolver: "#{@ipKeyResolver}"
+        - name: Retry
+          args:
+            retries: ${RETRY_COUNT:3}
+            statuses: BAD_GATEWAY
+            methods: GET, POST
+            backoff:
+              firstBackoff: ${RETRY_BACKOFF_INITIAL:1s}
+              maxBackoff: ${RETRY_BACKOFF_MAX:5s}
+              factor: 2
+              basedOnPreviousValue: true
+
+      routes:
+        - id: devnogi-auth-server
+          uri: ${AUTH_SERVICE_URI:http://localhost:8080}
+          predicates:
+            - Path=/api/auth/** # temp
+          filters:
+            - StripPrefix=2
+            - name: JwtAuthenticationFilter
+
+        - id: open-api-batch-server
+          uri: ${COMMUNITY_SERVICE_URI:http://localhost:8080}
+          predicates:
+            - Path=/api/statics/** # temp
+          filters:
+            - StripPrefix=2
+            - name: JwtAuthenticationFilter
+
+        - id: devnogi-community-server
+          uri: ${BLOG_SERVICE_URI:http://localhost:8080}
+          predicates:
+            - Path=/api/community/** # temp
+          filters:
+            - StripPrefix=2
+            - name: JwtAuthenticationFilter
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
+# CORS 설정 (커스텀 클래스에서 적용해야 함)
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowed-headers: ${CORS_ALLOWED_HEADERS:*}
+  allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    org.springframework.cloud.gateway: ${LOG_LEVEL_GATEWAY:DEBUG}
+    reactor.netty.http.client: ${LOG_LEVEL_NETTY:DEBUG}

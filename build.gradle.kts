@@ -26,6 +26,9 @@ dependencies {
 	// ✅ Gateway
 	implementation("org.springframework.cloud:spring-cloud-starter-gateway")
 
+	// LoadBalancer
+	implementation("org.springframework.cloud:spring-cloud-starter-loadbalancer")
+
 	// ✅ WebFlux 기반
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 

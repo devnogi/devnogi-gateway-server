@@ -43,6 +43,8 @@ dependencies {
 	// ✅ 테스트
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+	// 라우팅 테스트용 Mock Web Server 라이브러리
+	testImplementation("com.squareup.okhttp3:mockwebserver")
 }
 
 dependencyManagement {

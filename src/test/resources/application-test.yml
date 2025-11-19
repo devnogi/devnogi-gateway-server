@@ -1,0 +1,54 @@
+spring:
+  cloud:
+    gateway:
+      default-filters:
+        - name: Retry
+          args:
+            retries: 3
+            statuses: BAD_GATEWAY
+            methods: GET, POST
+            backoff:
+              firstBackoff: 1s
+              maxBackoff: 5s
+              factor: 2
+              basedOnPreviousValue: true
+      # main의 routes 설정을 그대로 가져옵니다.
+      routes:
+        - id: devnogi-auth-server
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - StripPrefix=2
+
+        - id: open-api-batch-server
+          uri: lb://open-api-batch-service
+          predicates:
+            - Path=/api/statics/**
+          filters:
+            - StripPrefix=2
+
+        - id: devnogi-community-server
+          uri: lb://community-service
+          predicates:
+            - Path=/api/community/**
+          filters:
+            - StripPrefix=2
+
+    # SimpleDiscoveryClient 설정도 테스트에 필요하므로 그대로 둡니다.
+    discovery:
+      client:
+        simple:
+          instances:
+            auth-service:
+              - uri: http://localhost:8081
+            open-api-batch-service:
+              - uri: http://localhost:8083
+            community-service:
+              - uri: http://localhost:8082
+
+# 테스트 시에는 로그를 더 자세히 보는 것이 좋으므로 DEBUG로 설정
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    reactor.netty.http.client: DEBUG

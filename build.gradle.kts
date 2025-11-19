@@ -26,6 +26,9 @@ dependencies {
 	// ✅ Gateway
 	implementation("org.springframework.cloud:spring-cloud-starter-gateway")
 
+	// LoadBalancer
+	implementation("org.springframework.cloud:spring-cloud-starter-loadbalancer")
+
 	// ✅ WebFlux 기반
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 
@@ -40,6 +43,12 @@ dependencies {
 	// ✅ 테스트
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+	// 라우팅 테스트용 Mock Web Server 라이브러리
+	testImplementation("com.squareup.okhttp3:mockwebserver")
+
+	// ✅ Lombok
+	compileOnly("org.projectlombok:lombok")
+	annotationProcessor("org.projectlombok:lombok")
 }
 
 dependencyManagement {

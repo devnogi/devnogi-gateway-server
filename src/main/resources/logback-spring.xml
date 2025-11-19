@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="60 seconds" packagingData="false">
+    <property name="LOG_DIR" value="logs/" />
+    <property name="APP_NAME" value="gateway" />
+    <property name="LOGLINE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS,Asia/Seoul} %-5level [%X{traceId:-}:%X{%spanId:-}] [%thread] %logger{36} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder><pattern>${LOGLINE_PATTERN}</pattern></encoder>
+    </appender>
+    <appender name="REQUEST_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${APP_NAME}-request.log</file>
+        <encoder><pattern>${LOGLINE_PATTERN}</pattern></encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/archive/${APP_NAME}-request.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>15</maxHistory>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+    </appender>
+    <appender name="RESPONSE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${APP_NAME}-response.log</file>
+        <encoder><pattern>${LOGLINE_PATTERN}</pattern></encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/archive/${APP_NAME}-response.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>15</maxHistory>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+    </appender>
+
+    <appender name="REQUEST_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="REQUEST_FILE"/>
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+        <neverBlock>true</neverBlock>
+    </appender>
+    <appender name="RESPONSE_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="RESPONSE_FILE"/>
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <logger name="gateway.request" level="INFO" additivity="false">
+        <appender-ref ref="REQUEST_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="gateway.response" level="INFO" additivity="false">
+        <appender-ref ref="RESPONSE_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

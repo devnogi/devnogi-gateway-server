@@ -19,7 +19,7 @@ public class UserContextFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        // JwtAuthenticationFilter가 저장한 사용자 정보 읽기
+        // JwtAuthenticationGatewayFilterFactory가 저장한 사용자 정보 읽기
         Long userId = exchange.getAttribute("userId");
         String username = exchange.getAttribute("username");
         String role = exchange.getAttribute("role");
@@ -44,7 +44,8 @@ public class UserContextFilter implements GlobalFilter, Ordered {
     }
 
     /**
-     * JwtAuthenticationFilter(-100) 다음에 실행되도록 우선순위 설정
+     * JWT 필터 다음에 실행되도록 우선순위 설정
+     * (GlobalFilter는 GatewayFilter보다 나중에 실행됨)
      */
     @Override
     public int getOrder() {

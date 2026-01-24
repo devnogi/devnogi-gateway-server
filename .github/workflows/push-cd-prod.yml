@@ -1,0 +1,219 @@
+name: CI/CD for Production Server
+
+on:
+  push:
+    branches: [ main, dev ]  # Only main branch, 서비스 시작 후 dev 제거
+
+permissions:
+  contents: read
+
+jobs:
+  ci-cd-prod:
+    name: Test, Build, and Deploy to Production Server
+    runs-on: ubuntu-latest
+
+    steps:
+      # ========================================
+      # CI Stage: Test & Coverage
+      # ========================================
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Run Tests and Generate Coverage
+        run: ./gradlew clean test jacocoTestReport --no-daemon
+
+      - name: Upload JaCoCo report to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/reports/jacoco/test/jacocoTestReport.xml
+          fail_ci_if_error: true  # Stricter for production
+          flags: prod
+          verbose: true
+
+      # ========================================
+      # CD Stage: Build & Deploy
+      # ========================================
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:latest
+            ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:prod
+            ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:prod-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      # ========================================
+      # Deploy Stage: SSH & Deploy
+      # ========================================
+      - name: Setup SSH key and config
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/my-key.pem
+          chmod 400 ~/.ssh/my-key.pem
+          ssh-keyscan -p ${{ secrets.PROD_SERVER_PORT }} \
+          -H ${{ secrets.PROD_SERVER_HOST }} >> ~/.ssh/known_hosts
+
+          echo -e "Host *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3" >> ~/.ssh/config
+
+      - name: Create app directory on server
+        run: |
+          ssh -p ${{ secrets.PROD_SERVER_PORT }} -i ~/.ssh/my-key.pem ${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }} "mkdir -p /opt/devnogi-gateway/logs"
+
+      - name: Copy docker-compose-prod.yml to server
+        run: |
+          scp -P ${{ secrets.PROD_SERVER_PORT }} -i ~/.ssh/my-key.pem docker-compose-prod.yml ${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }}:/opt/devnogi-gateway/
+
+      - name: Deploy to Production Server
+        run: |
+          ssh -i ~/.ssh/my-key.pem -p ${{ secrets.PROD_SERVER_PORT }} ${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }} << 'EOF'
+            cd /opt/devnogi-gateway
+
+            # Write .env.prod content to .env
+            echo "${{ secrets.ENV_FILE_PROD }}" > .env.prod
+
+            # Docker Hub 로그인
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+            # Pull latest production image
+            docker pull ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:prod
+
+            # Stop and remove existing containers
+            docker compose -f docker-compose-prod.yml down
+
+            # Start new containers
+            docker compose -f docker-compose-prod.yml --env-file .env.prod up -d
+
+            echo "✅ Production deployment complete"
+          EOF
+
+      # ========================================
+      # Health Check Stage (Stricter for Production)
+      # ========================================
+      - name: Comprehensive Health Check
+        run: |
+          ssh -i ~/.ssh/my-key.pem -p ${{ secrets.PROD_SERVER_PORT }} ${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }} << 'EOF'
+            echo "=== Starting Production Health Check ==="
+
+            # 1. Check if container is running
+            CONTAINER_ID=$(docker ps -q --filter "name=devnogi-gateway-app-prod")
+            if [ -z "$CONTAINER_ID" ]; then
+              echo "❌ Container not running"
+              docker ps -a
+              docker logs devnogi-gateway-app-prod --tail 50
+              exit 1
+            fi
+            echo "✅ Container is running (ID: $CONTAINER_ID)"
+
+            # 2. Wait for Docker health check
+            echo "Waiting for container to become healthy..."
+            for i in {1..36}; do
+              HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' devnogi-gateway-app-prod 2>/dev/null || echo "no-healthcheck")
+
+              if [ "$HEALTH_STATUS" == "healthy" ]; then
+                echo "✅ Container is healthy"
+                break
+              elif [ "$HEALTH_STATUS" == "no-healthcheck" ]; then
+                echo "⚠️  No healthcheck configured, checking actuator directly"
+                break
+              fi
+
+              echo "Current health status: $HEALTH_STATUS ($i/36)"
+              sleep 10
+
+              if [ $i -eq 36 ]; then
+                echo "❌ Container failed to become healthy after 6 minutes"
+                docker logs devnogi-gateway-app-prod --tail 100
+                exit 1
+              fi
+            done
+
+            # 3. Check Spring Boot actuator health endpoint
+            echo "Checking actuator health endpoint..."
+            for i in {1..30}; do
+              HEALTH_RESPONSE=$(curl -s http://localhost:${{ secrets.PROD_APP_PORT || 8090 }}/actuator/health || echo "")
+
+              if echo "$HEALTH_RESPONSE" | grep -q '"status":"UP"'; then
+                echo "✅ Application health check passed"
+                echo "Health response: $HEALTH_RESPONSE"
+                break
+              fi
+
+              echo "Waiting for application to start... ($i/30)"
+              sleep 10
+
+              if [ $i -eq 30 ]; then
+                echo "❌ Application health check failed after 5 minutes"
+                echo "Last response: $HEALTH_RESPONSE"
+                docker logs devnogi-gateway-app-prod --tail 100
+                exit 1
+              fi
+            done
+
+            # 4. Smoke test: Check if API responds
+            echo "Running smoke test..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{ secrets.PROD_APP_PORT || 8090 }}/actuator/health)
+            if [ "$HTTP_CODE" == "200" ]; then
+              echo "✅ Smoke test passed (HTTP $HTTP_CODE)"
+            else
+              echo "❌ Smoke test failed (HTTP $HTTP_CODE)"
+              exit 1
+            fi
+
+            echo "=== Health Check Complete ==="
+            docker ps --filter "name=devnogi-gateway-app-prod"
+          EOF
+
+      - name: Display deployment info
+        if: success()
+        run: |
+          echo "✅ Production deployment successful!"
+          echo "🔗 Production Server: http://${{ secrets.PROD_SERVER_HOST }}:${{ secrets.PROD_APP_PORT || 8090 }}"
+          echo "🐳 Image: ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:prod"
+          echo "📦 Commit: ${{ github.sha }}"
+          echo "⚠️  Please verify the production deployment manually"
+
+      # ========================================
+      # Rollback on Failure (Optional)
+      # ========================================
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed! Consider manual rollback if needed."
+          echo "To rollback, SSH to server and run:"
+          echo "  docker pull ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:prod-<previous-sha>"
+          echo "  docker compose -f docker-compose-prod.yml down && docker compose -f docker-compose-prod.yml --env-file .env.prod up -d"

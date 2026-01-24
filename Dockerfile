@@ -36,6 +36,9 @@ WORKDIR /app
 # 빌드된 JAR 복사
 COPY --from=builder /app/build/libs/*.jar app.jar
 
+# 로그 디렉토리 생성
+RUN mkdir -p /app/logs
+
 # 비root 사용자로 실행 (보안)
 RUN addgroup -g 1000 appgroup && \
     adduser -u 1000 -G appgroup -D appuser && \

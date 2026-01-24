@@ -86,7 +86,7 @@ services:
 
     # === Health Check (Prod - 빈번한 체크, 빠른 복구) ===
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${SERVER_PORT}/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${SERVER_PORT}/actuator/health"]
       interval: 15s      # 더 자주 체크 (운영 안정성)
       timeout: 10s       # 더 짧은 타임아웃 (빠른 감지)
       retries: 5         # 더 많은 재시도 (일시적 장애 허용)

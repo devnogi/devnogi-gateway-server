@@ -1,0 +1,61 @@
+server:
+  port: 8099
+
+spring:
+  application:
+    name: gateway-server
+
+  cloud:
+    gateway:
+      routes:
+        # Auth Server - 인증/인가 담당 (JWT 발급만)
+        - id: devnogi-auth-server
+          uri: ${AUTH_SERVER_URL:http://localhost:8091}
+          predicates:
+            - Path=/das/**
+          filters:
+            - StripPrefix=1
+
+        # Open API Batch Server - 경매 데이터 수집/분석
+        - id: open-api-batch-server
+          uri: ${OPEN_API_BATCH_SERVER_URL:http://localhost:8092}
+          predicates:
+            - Path=/oab/**
+          filters:
+            - StripPrefix=1
+
+        # Community Server - 게시판/댓글/사용자 관리
+        - id: devnogi-community-server
+          uri: ${COMMUNITY_SERVER_URL:http://localhost:8093}
+          predicates:
+            - Path=/dcs/**
+          filters:
+            - StripPrefix=1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
+# CORS 설정
+cors:
+  allowed-origins: "*"
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowed-headers: "*"
+  allow-credentials: true
+
+jwt:
+  secret-key: ${JWT_SECRET_KEY}
+  issuer: ${JWT_ISSUER}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
+    reactor.netty.http.client: DEBUG

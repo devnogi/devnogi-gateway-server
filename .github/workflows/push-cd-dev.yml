@@ -52,7 +52,7 @@ jobs:
 
       - name: Copy docker-compose file to server
         run: |
-          scp -i ~/.ssh/my-key.pem docker-compose-dev.yaml ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/app/
+          scp -i ~/.ssh/my-key.pem docker-compose-dev.yml ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/app/
 
       - name: Deploy and Restart Container
         run: |
@@ -63,8 +63,8 @@ jobs:
             echo "${{ secrets.ENV_FILE }}" > /home/${{ secrets.SERVER_USER }}/app/.env
 
             docker pull ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:latest
-            docker compose -f docker-compose-dev.yaml down
-            docker compose -f docker-compose-dev.yaml up -d
+            docker compose -f docker-compose-dev.yml down
+            docker compose -f docker-compose-dev.yml up -d
 
             echo "✅ Docker Compose finished. Containers should be up."
           EOF

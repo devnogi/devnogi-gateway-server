@@ -6,7 +6,7 @@
 # =============================================================================
 
 services:
-  spring-app:
+  devnogi-gateway-app:
     image: ${DOCKER_USERNAME}/${DOCKER_REPO}:${DOCKER_IMAGE_TAG:-prod}
     pull_policy: always
     container_name: devnogi-gateway-app-prod

@@ -1,9 +1,8 @@
 name: CI/CD for Production Server
 
 on:
-  pull_request:
-    branches: [ dev, main ]
-    types: [ opened, synchronize, reopened ] # 테스트용
+  push:
+    branches: [ main ]  # Only main branch, 서비스 시작 후 dev 제거
 
 permissions:
   contents: read

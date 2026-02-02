@@ -7,6 +7,23 @@ spring:
 
   cloud:
     gateway:
+      # CORS 전역 설정
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "https://www.memonogi.com"
+              - "https://memonogi.com"
+              - "http://localhost:*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+            maxAge: 3600
       routes:
         # Auth Server - 인증/인가 담당 (JWT 발급만)
         - id: devnogi-auth-server
@@ -43,18 +60,6 @@ management:
     web:
       exposure:
         include: "*"
-
-# CORS 설정
-cors:
-  allowed-origins: "*"
-  allowed-methods:
-    - GET
-    - POST
-    - PUT
-    - DELETE
-    - OPTIONS
-  allowed-headers: "*"
-  allow-credentials: true
 
 jwt:
   secret-key: ${JWT_SECRET_KEY}

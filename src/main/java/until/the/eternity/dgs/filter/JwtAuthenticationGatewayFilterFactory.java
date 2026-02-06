@@ -88,7 +88,7 @@ public class JwtAuthenticationGatewayFilterFactory
                 return exchange.getResponse().setComplete();
             }
 
-            // Step 5: 사용자 정보 추출 및 ServerWebExchange에 저장
+            // Step 5: 사용자 정보 추출 및 헤더에 담아 마이크로서비스로 전달
             try {
                 Long userId = getUserId(token, config);
                 String username = getUsername(token, config);
@@ -96,12 +96,15 @@ public class JwtAuthenticationGatewayFilterFactory
 
                 log.info("[JWT-DEBUG] Authenticated user - ID: {}, Username: {}, Role: {}", userId, username, role);
 
-                exchange.getAttributes().put("userId", userId);
-                exchange.getAttributes().put("username", username);
-                exchange.getAttributes().put("role", role);
+                ServerHttpRequest modifiedRequest = request.mutate()
+                        .header("X-Auth-User-Id", String.valueOf(userId).toLowerCase())
+                        .header("X-Auth-Username", username.toLowerCase())
+                        .header("X-Auth-Roles", role.toLowerCase())
+                        .build();
 
+                log.info("[JWT-DEBUG] Added headers - X-Auth-User-Id: {}, X-Auth-Username: {}, X-Auth-Roles: {}", userId, username, role);
                 log.info("[JWT-DEBUG] ========== JWT Filter End (SUCCESS) ==========");
-                return chain.filter(exchange.mutate().request(request).build());
+                return chain.filter(exchange.mutate().request(modifiedRequest).build());
             } catch (Exception e) {
                 log.error("[JWT-DEBUG] Error extracting user info from token: {}", e.getMessage(), e);
                 log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Extraction Error) ==========");

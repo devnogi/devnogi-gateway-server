@@ -33,6 +33,14 @@ spring:
           filters:
             - StripPrefix=1
 
+        # Auth Server - OAuth2 인가 시작 (JWT 불필요)
+        - id: devnogi-auth-server-oauth-start
+          uri: ${AUTH_SERVER_URL:http://localhost:8091}
+          predicates:
+            - Path=/das/oauth2/authorization/**
+          filters:
+            - StripPrefix=1
+
         # Auth Server - 인증/인가 담당 (JWT 필요)
         - id: devnogi-auth-server
           uri: ${AUTH_SERVER_URL:http://localhost:8091}

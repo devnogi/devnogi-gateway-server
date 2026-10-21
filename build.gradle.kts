@@ -60,3 +60,10 @@ dependencyManagement {
 tasks.withType<Test> {
 	useJUnitPlatform()
 }
+
+// Verification must not format sources or regenerate checked-in documentation.
+tasks.register("verify") {
+    group = "verification"
+    description = "Run tests, configured static checks, and build the application JAR."
+    dependsOn("check", "bootJar")
+}

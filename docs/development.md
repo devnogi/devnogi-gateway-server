@@ -24,6 +24,14 @@ docker compose --env-file .env.local -f docker-compose-local.yml up --build spri
 
 기본 포트: 8090. Compose의 env_file과 interpolation은 다르므로 --env-file을 생략하지 않는다. Linux에서는 host.docker.internal host-gateway 설정이 필요할 수 있다. 필요한 서비스만 지정해 Docker socket을 마운트하는 autoheal은 실행하지 않는다. config 통과는 기동·DB migration·외부 연동 성공의 증거가 아니다. 중단은 같은 파일과 --env-file로 stop을 실행한다. down -v는 데이터를 삭제하므로 별도 판단한다.
 
+## 로컬 이메일 로그인
+
+auth와 gateway는 `.env.example`의 동일한 합성 Base64 서명 키와 `JWT_ISSUER=devnogi`를 사용한다. 키는 디코딩 후 최소 32바이트여야 한다. 기존 개인 env가 있으면 두 서비스의 키를 직접 맞추되 비밀값을 문서나 로그에 남기지 않는다. 토큰 유효 기간의 밀리초 설정은 발급자인 auth가 관리하며 gateway는 기존 검증 동작을 유지한다.
+
+브라우저는 웹 BFF의 `/api/auth/login`, `/api/auth/me`, `/api/auth/refresh`, `/api/auth/logout`을 호출한다. BFF는 gateway `/das/api/auth/login|refresh|logout`, `/das/api/user/info`를 거쳐 auth에 전달한다. HTTP 계약 원본은 auth 저장소 `contracts/openapi.yaml`이다. localhost 쿠키 속성은 auth와 웹의 로컬 설정에서 맞춘다. gateway의 JWT 검증·라우팅을 완화하지 않는다.
+
+`LocalJwtSampleTest`는 두 샘플 키의 Base64·길이와 실제 JWT 발급/검증 호환성을 확인한다. auth와의 동일 키 여부 및 브라우저 세션은 서비스 간 통합 검증으로 추가 확인한다.
+
 ## CI와 배포
 
 PR 필수 검사 이름은 verify와 secret-scan이다. 원격 브랜치 보호에서 두 검사와 사람 리뷰를 필수로 지정해야 강제된다. yaml 파일만 추가해도 보호가 활성화되는 것은 아니다. 이미지 게시/운영 배포는 workflow_dispatch로 분리했고 운영은 main/production, 개발은 dev/development로 제한한다. GitHub Environment에 승인자를 별도로 설정해야 실제 사람 승인 게이트가 생긴다. push/PR 생성만으로 배포하지 않는다.

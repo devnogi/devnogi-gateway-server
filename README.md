@@ -37,10 +37,10 @@ Spring Cloud Gateway 기반의 API Gateway 서버입니다.
 
 ### 환경변수 설정
 
-`.env.local.sample`을 참고하여 `.env.local` 파일을 생성합니다.
+`.env.example`을 참고하여 `.env.local` 파일을 생성합니다. 기존 파일이 있으면 덮어쓰지 말고 필요한 설정만 비교합니다.
 
 ```bash
-cp .env.local.sample .env.local
+cp .env.example .env.local
 # .env.local 파일 수정
 ```
 
@@ -50,6 +50,8 @@ cp .env.local.sample .env.local
 - `AUTH_SERVER_URL`: 인증 서버 URL
 - `OPEN_API_BATCH_SERVER_URL`: 배치 서버 URL
 - `COMMUNITY_SERVER_URL`: 커뮤니티 서버 URL
+
+샘플 JWT 키는 auth의 로컬 예제와 같은 공개 합성 Base64 값입니다. 실제 공유·운영 환경에서 사용하지 않습니다. 로컬 이메일 로그인 설정과 요청 흐름은 [개발 안내](docs/development.md#로컬-이메일-로그인)를 참고하세요.
 
 ### Gradle로 실행
 
@@ -67,10 +69,10 @@ docker-compose -f docker-compose-local.yml up -d
 
 ### CI/CD
 
-GitHub Actions를 통해 자동 배포됩니다.
+GitHub Actions의 배포 workflow는 수동 실행과 환경 승인을 사용합니다. push와 PR 생성만으로는 배포하지 않습니다.
 
-- **dev 브랜치** push → `push-cd-dev.yml` 실행 → 개발 서버 배포
-- **main 브랜치** push → `push-cd-prod.yml` 실행 → 운영 서버 배포
+- **dev 브랜치**에서 `push-cd-dev.yml` 수동 실행 → development 환경
+- **main 브랜치**에서 `push-cd-prod.yml` 수동 실행 → production 환경
 
 ### Docker 빌드
 

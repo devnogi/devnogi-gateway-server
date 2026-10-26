@@ -67,10 +67,11 @@ docker-compose -f docker-compose-local.yml up -d
 
 ### CI/CD
 
-GitHub Actions를 통해 자동 배포됩니다.
+GitHub Actions를 통해 개발 서버를 자동 배포하고, 운영 서버는 승인 후 수동 배포합니다.
 
 - **dev 브랜치** push → `push-cd-dev.yml` 실행 → 개발 서버 배포
-- **main 브랜치** push → `push-cd-prod.yml` 실행 → 운영 서버 배포
+- **main 브랜치** 수동 `workflow_dispatch` → `production` 환경 승인 → `push-cd-prod.yml` 실행 → 운영 서버 배포
+- `main` 대상 PR은 `verify.yml`의 `verify`·`secret-scan` 검사로 검증합니다.
 
 ### Docker 빌드
 

@@ -21,6 +21,11 @@ spring:
           filters:
             - StripPrefix=2
 
+        - id: devnogi-auth-server-oauth
+          uri: lb://auth-service
+          predicates:
+            - Path=/login/oauth2/code/**
+
         - id: open-api-batch-server
           uri: lb://open-api-batch-service
           predicates:

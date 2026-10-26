@@ -28,7 +28,7 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
 
         // 라우팅 전 로깅
-        logPreRoute(request);
+        logPreRoute(exchange, request);
 
         return chain.filter(exchange)
                 .doOnSubscribe(subscription -> {
@@ -37,7 +37,13 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
                 });
     }
 
-    private void logPreRoute(ServerHttpRequest request) {
+    private void logPreRoute(ServerWebExchange exchange, ServerHttpRequest request) {
+        if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
+            ROUTE_LOG.info("Auth incoming request: method={}, path={}",
+                    request.getMethod(), request.getPath().value());
+            return;
+        }
+
         ROUTE_LOG.info("╔══════════════════════════════════════════════════════════════╗");
         ROUTE_LOG.info("║ INCOMING REQUEST                                             ║");
         ROUTE_LOG.info("╠══════════════════════════════════════════════════════════════╣");
@@ -48,6 +54,12 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
     }
 
     private void logPostRoute(ServerWebExchange exchange, ServerHttpRequest request) {
+        if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
+            ROUTE_LOG.info("Auth routing decision: method={}, path={}, route={}",
+                    request.getMethod(), request.getPath().value(), SensitiveAuthLogPolicy.routeId(exchange));
+            return;
+        }
+
         Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
         URI routeUri = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_REQUEST_URL_ATTR);
 

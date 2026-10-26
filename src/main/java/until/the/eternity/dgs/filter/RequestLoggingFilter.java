@@ -27,6 +27,12 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
     private final ModifyRequestBodyGatewayFilterFactory modifyRequestBodyGatewayFilterFactory;
 
     private static void logRequest(final ServerWebExchange exchange, final ServerHttpRequest request, final String body) {
+        if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
+            REQ_LOG.info("Auth request: method={}, path={}, route={}",
+                    request.getMethod(), request.getPath().value(), SensitiveAuthLogPolicy.routeId(exchange));
+            return;
+        }
+
         // 라우팅 정보 추출
         Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
         String routeId = route != null ? route.getId() : "UNKNOWN";

@@ -18,10 +18,13 @@ export function scan(directory) {
   const findings = [];
   for (const file of files) {
     const absolute = path.join(directory, file);
-    let stats; try { stats = statSync(absolute); } catch { continue; }
-    if (!stats.isFile() || stats.size > 2_000_000) continue;
     if (/(^|\/)\.env(?:\.|$)/.test(file) && !/[.-](?:example|sample|template)$/.test(file)) findings.push({ file, kind: 'tracked-environment-file' });
-    const contents = readFileSync(absolute, 'utf8');
+    let stats;
+    try { stats = statSync(absolute); } catch { findings.push({ file, kind: 'unreadable-file' }); continue; }
+    if (!stats.isFile()) { findings.push({ file, kind: 'non-regular-file' }); continue; }
+    if (stats.size > 2_000_000) { findings.push({ file, kind: 'oversized-file' }); continue; }
+    let contents;
+    try { contents = readFileSync(absolute, 'utf8'); } catch { findings.push({ file, kind: 'unreadable-file' }); continue; }
     if (contents.includes('\0')) continue;
     for (const kind of secretKinds(contents)) findings.push({ file, kind });
   }

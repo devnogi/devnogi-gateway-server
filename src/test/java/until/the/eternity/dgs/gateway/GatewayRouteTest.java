@@ -1,5 +1,9 @@
 package until.the.eternity.dgs.gateway;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -9,10 +13,21 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
+import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import until.the.eternity.dgs.filter.RouteLoggingFilter;
+import until.the.eternity.dgs.filter.JwtAuthenticationGatewayFilterFactory;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -111,5 +126,236 @@ public class GatewayRouteTest {
 
         // Then: mock CommunityService가 총 4번의 요청을 받았는지 확인
         assertThat(mockCommunityService.getRequestCount()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("Auth JSON 요청과 오류 응답의 비밀값은 로그에서 숨기고 그대로 전달한다")
+    void authSecretsAreNotLoggedButForwarded() throws InterruptedException {
+        String querySecret = "query-code-SENTINEL-314159";
+        String cookieSecret = "oauth-binding-SENTINEL-271828";
+        String jwtSecret = "jwt-SENTINEL-161803";
+        String passwordSecret = "password-SENTINEL-141421";
+        String proofSecret = "signup-proof-SENTINEL-173205";
+        String emailSecret = "email-SENTINEL-223606@example.test";
+        String locationSecret = "location-SENTINEL-244948";
+        String responseCookieSecret = "set-cookie-SENTINEL-264575";
+        String requestBody = "{\"password\":\"" + passwordSecret + "\",\"padding\":\""
+                + "p".repeat(510) + "\",\"signupProof\":\"" + proofSecret + "\"}";
+        String responseBody = "{\"email\":\"" + emailSecret + "\",\"padding\":\""
+                + "r".repeat(1010) + "\",\"signupProof\":\"" + proofSecret + "\"}";
+
+        mockAuthService.enqueue(new MockResponse().setResponseCode(400)
+                .setHeader("Content-Type", "application/json")
+                .setHeader("Set-Cookie", "oauth_flow_binding=" + responseCookieSecret + "; HttpOnly")
+                .setHeader("Location", "https://example.test/callback?code=" + locationSecret)
+                .setBody(responseBody));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.post().uri("/das/api/auth/login?code=" + querySecret)
+                    .header("Authorization", "Bearer " + jwtSecret)
+                    .header("Cookie", "oauth_flow_binding=" + cookieSecret)
+                    .header("Content-Type", "application/json")
+                    .bodyValue(requestBody)
+                    .exchange()
+                    .expectStatus().isBadRequest()
+                    .expectHeader().valueEquals("Set-Cookie", "oauth_flow_binding=" + responseCookieSecret + "; HttpOnly")
+                    .expectHeader().valueEquals("Location", "https://example.test/callback?code=" + locationSecret)
+                    .expectBody(String.class).isEqualTo(responseBody);
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getMethod()).isEqualTo("POST");
+            assertThat(forwarded.getPath()).isEqualTo("/api/auth/login?code=" + querySecret);
+            assertThat(forwarded.getHeader("Authorization")).isEqualTo("Bearer " + jwtSecret);
+            assertThat(forwarded.getHeader("Cookie")).contains(cookieSecret);
+            assertThat(forwarded.getBody().readUtf8()).isEqualTo(requestBody);
+
+            String output = logs.output();
+            assertThat(output).contains("/das/**", "devnogi-auth-server", "400");
+            assertThat(output).doesNotContain(querySecret, cookieSecret, jwtSecret, passwordSecret,
+                    proofSecret, emailSecret, locationSecret, responseCookieSecret);
+            assertThat(output).doesNotContain("/das/api/auth/login?", "Full URI:", "Body:", "Authorization:", "Set-Cookie:");
+            assertThat(logs.outputFor("gateway.request")).contains("Auth request", "/das/**");
+            assertThat(logs.outputFor("gateway.response")).contains("Auth response", "/das/**", "400");
+        }
+    }
+
+    @Test
+    @DisplayName("기존 OAuth 콜백의 query와 응답 Location은 숨기고 그대로 전달한다")
+    void legacyOAuthCallbackDoesNotLogSecrets() throws InterruptedException {
+        String code = "legacy-code-SENTINEL-8675309";
+        String location = "legacy-location-SENTINEL-13579";
+        mockAuthService.enqueue(new MockResponse().setResponseCode(302)
+                .setHeader("Location", "https://example.test/finish?data=" + location));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.get().uri("/login/oauth2/code/kakao?code=" + code)
+                    .exchange().expectStatus().is3xxRedirection()
+                    .expectHeader().valueEquals("Location", "https://example.test/finish?data=" + location);
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getPath()).isEqualTo("/login/oauth2/code/kakao?code=" + code);
+            String output = logs.output();
+            assertThat(output).contains("/login/oauth2/code/**");
+            assertThat(output).doesNotContain(code, location);
+        }
+    }
+
+    @Test
+    @DisplayName("운영 Auth 교환 경로는 code와 결합 쿠키를 전달하되 로그에서 숨긴다")
+    void oauthExchangeUsesProtectedAuthRoute() throws InterruptedException {
+        String code = "exchange-code-SENTINEL-102938";
+        String binding = "exchange-binding-SENTINEL-475869";
+        String proof = "exchange-proof-SENTINEL-564738";
+        String requestBody = "{\"code\":\"" + code + "\"}";
+        String responseBody = "{\"signupProof\":\"" + proof + "\"}";
+        mockAuthService.enqueue(new MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json").setBody(responseBody));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.post().uri("/das/api/auth/oauth/exchange")
+                    .header("Cookie", "oauth_flow_binding=" + binding)
+                    .header("Content-Type", "application/json")
+                    .bodyValue(requestBody).exchange().expectStatus().isOk()
+                    .expectBody(String.class).isEqualTo(responseBody);
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getMethod()).isEqualTo("POST");
+            assertThat(forwarded.getPath()).isEqualTo("/api/auth/oauth/exchange");
+            assertThat(forwarded.getHeader("Cookie")).contains(binding);
+            assertThat(forwarded.getBody().readUtf8()).isEqualTo(requestBody);
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server")
+                    .doesNotContain(code, binding, proof);
+            assertThat(logs.outputFor("gateway.request")).contains("Auth request", "/das/**");
+            assertThat(logs.outputFor("gateway.response")).contains("Auth response", "/das/**");
+        }
+    }
+
+    @Test
+    @DisplayName("Auth multipart 가입 증명은 로그에서 숨기고 요청 본문은 그대로 전달한다")
+    void socialSignupMultipartDoesNotLogProof() throws InterruptedException {
+        String proof = "multipart-proof-SENTINEL-112358";
+        String email = "multipart-email-SENTINEL-132134@example.test";
+        String response = "{\"nickname\":\"generated-name\"}";
+        mockAuthService.enqueue(new MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json").setBody(response));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.post().uri("/das/api/auth/signup/social")
+                    .body(BodyInserters.fromMultipartData("signupProof", proof).with("email", email))
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo(response);
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getMethod()).isEqualTo("POST");
+            assertThat(forwarded.getPath()).isEqualTo("/api/auth/signup/social");
+            assertThat(forwarded.getHeader("Content-Type")).contains("multipart/form-data");
+            assertThat(forwarded.getBody().readUtf8()).contains(proof, email);
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server")
+                    .doesNotContain(proof, email);
+        }
+    }
+
+    @Test
+    @DisplayName("실제 /das 라우트의 경로 세그먼트와 matrix 비밀값은 로그에서 숨기고 전달한다")
+    void authPathSecretsAreNotLoggedButForwarded() throws InterruptedException {
+        String pathSecret = "path-code-SENTINEL-987654";
+        String matrixSecret = "matrix-proof-SENTINEL-456789";
+        String querySecret = "query-code-SENTINEL-654321";
+        String requestPath = "/das/api/auth/login/" + pathSecret + ";signupProof=" + matrixSecret;
+        String downstreamPath = "/api/auth/login/" + pathSecret + ";signupProof=" + matrixSecret
+                + "?code=" + querySecret;
+        mockAuthService.enqueue(new MockResponse().setResponseCode(200).setBody("forwarded"));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.get().uri(requestPath + "?code=" + querySecret)
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("forwarded");
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getPath()).isEqualTo(downstreamPath);
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server")
+                    .doesNotContain(pathSecret, matrixSecret, querySecret,
+                            pathSecret.substring(0, 16), matrixSecret.substring(0, 16));
+        }
+    }
+
+    @Test
+    @DisplayName("Auth JWT 검증 오류는 토큰과 matrix 경로를 로그에 남기지 않는다")
+    void invalidAuthJwtDoesNotLeakThroughErrorLog() {
+        String pathSecret = "jwt-path-SENTINEL-765432";
+        String tokenSecret = "jwt-header-SENTINEL-234567";
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/das/api/user/info;code=" + pathSecret)
+                .header("Authorization", "Bearer " + tokenSecret));
+        JwtAuthenticationGatewayFilterFactory.Config config = new JwtAuthenticationGatewayFilterFactory.Config();
+        config.setSecretKey(Base64.getEncoder().encodeToString(
+                "synthetic-test-key-with-at-least-32-bytes".getBytes(StandardCharsets.UTF_8)));
+        config.setIssuer("synthetic-issuer");
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            new JwtAuthenticationGatewayFilterFactory().apply(config)
+                    .filter(exchange, ignored -> Mono.error(new AssertionError("invalid token passed"))).block();
+            assertThat(exchange.getResponse().getStatusCode().value()).isEqualTo(401);
+            assertThat(logs.output()).contains("/das/**").doesNotContain(pathSecret, tokenSecret,
+                    pathSecret.substring(0, 12), tokenSecret.substring(0, 12));
+        }
+    }
+
+    @Test
+    @DisplayName("비인증 경로의 기존 상세 라우팅 로그를 유지한다")
+    void nonAuthRouteRetainsDetailedLog() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/oab/items?name=ordinary-item"));
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            new RouteLoggingFilter().filter(exchange, ignored -> Mono.empty()).block();
+            assertThat(logs.output()).contains("Full URI: /oab/items?name=ordinary-item");
+        }
+    }
+
+    private static final class CapturedGatewayLogs implements AutoCloseable {
+        private final List<Logger> loggers = List.of(
+                (Logger) LoggerFactory.getLogger("gateway.request"),
+                (Logger) LoggerFactory.getLogger("gateway.response"),
+                (Logger) LoggerFactory.getLogger("gateway.route"),
+                (Logger) LoggerFactory.getLogger("until.the.eternity.dgs.filter.UserContextFilter"),
+                (Logger) LoggerFactory.getLogger("until.the.eternity.dgs.filter.CorsDebugFilter"),
+                (Logger) LoggerFactory.getLogger("until.the.eternity.dgs.filter.JwtAuthenticationGatewayFilterFactory"));
+        private final List<Level> previousLevels = loggers.stream().map(Logger::getLevel).toList();
+        private final Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+        private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+        private CapturedGatewayLogs() {
+            appender.start();
+            loggers.forEach(logger -> {
+                logger.setLevel(Level.DEBUG);
+            });
+            rootLogger.addAppender(appender);
+            loggers.get(0).addAppender(appender);
+            loggers.get(1).addAppender(appender);
+        }
+
+        private String output() {
+            return appender.list.stream().map(ILoggingEvent::getFormattedMessage)
+                    .collect(Collectors.joining("\n"));
+        }
+
+        private String outputFor(String loggerName) {
+            return appender.list.stream().filter(event -> event.getLoggerName().equals(loggerName))
+                    .map(ILoggingEvent::getFormattedMessage).collect(Collectors.joining("\n"));
+        }
+
+        @Override
+        public void close() {
+            for (int i = 0; i < loggers.size(); i++) {
+                loggers.get(i).setLevel(previousLevels.get(i));
+            }
+            rootLogger.detachAppender(appender);
+            loggers.get(0).detachAppender(appender);
+            loggers.get(1).detachAppender(appender);
+            appender.stop();
+        }
     }
 }

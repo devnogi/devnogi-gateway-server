@@ -24,7 +24,8 @@ public class UserContextFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest originalRequest = exchange.getRequest();
         String method = originalRequest.getMethod() != null ? originalRequest.getMethod().name() : "UNKNOWN";
-        String path = originalRequest.getURI().getPath();
+        boolean sensitive = SensitiveAuthLogPolicy.isSensitive(exchange);
+        String path = sensitive ? SensitiveAuthLogPolicy.safePath(exchange) : originalRequest.getURI().getPath();
 
         // 라우팅 정보
         Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
@@ -32,12 +33,16 @@ public class UserContextFilter implements GlobalFilter, Ordered {
 
         // 원본 요청 헤더 로깅
         HttpHeaders originalHeaders = originalRequest.getHeaders();
-        log.info("[USER-CONTEXT] ========== Incoming Request Headers ==========");
-        log.info("[USER-CONTEXT] Request: {} {} → Route: {}", method, path, routeId);
-        log.info("[USER-CONTEXT] --- Original Headers ---");
-        originalHeaders.forEach((key, values) ->
-                log.info("[USER-CONTEXT]   {} : {}", key, maskHeaderValue(key, String.join(", ", values)))
-        );
+        if (sensitive) {
+            log.info("[USER-CONTEXT] Auth request: method={}, path={}, route={}", method, path, routeId);
+        } else {
+            log.info("[USER-CONTEXT] ========== Incoming Request Headers ==========");
+            log.info("[USER-CONTEXT] Request: {} {} → Route: {}", method, path, routeId);
+            log.info("[USER-CONTEXT] --- Original Headers ---");
+            originalHeaders.forEach((key, values) ->
+                    log.info("[USER-CONTEXT]   {} : {}", key, maskHeaderValue(key, String.join(", ", values)))
+            );
+        }
 
         // JwtAuthenticationGatewayFilterFactory가 저장한 사용자 정보 읽기
         Long userId = exchange.getAttribute("userId");
@@ -46,9 +51,11 @@ public class UserContextFilter implements GlobalFilter, Ordered {
 
         // 사용자 정보가 없으면 (공개 경로 등) 그대로 통과
         if (userId == null || username == null || role == null) {
-            log.info("[USER-CONTEXT] No user context found (userId={}, username={}, role={}), skipping header injection",
-                    userId, username, role);
-            log.info("[USER-CONTEXT] =================================================");
+            if (!sensitive) {
+                log.info("[USER-CONTEXT] No user context found (userId={}, username={}, role={}), skipping header injection",
+                        userId, username, role);
+                log.info("[USER-CONTEXT] =================================================");
+            }
             return chain.filter(exchange);
         }
 
@@ -60,18 +67,20 @@ public class UserContextFilter implements GlobalFilter, Ordered {
                 .build();
 
         // 마이크로서비스로 전달될 커스텀 헤더 로깅
-        log.info("[USER-CONTEXT] --- Custom Headers for Microservice ---");
-        log.info("[USER-CONTEXT]   X-Auth-User-Id  : {}", userId);
-        log.info("[USER-CONTEXT]   X-Auth-Username  : {}", username);
-        log.info("[USER-CONTEXT]   X-Auth-Roles     : {}", role);
+        if (!sensitive) {
+            log.info("[USER-CONTEXT] --- Custom Headers for Microservice ---");
+            log.info("[USER-CONTEXT]   X-Auth-User-Id  : {}", userId);
+            log.info("[USER-CONTEXT]   X-Auth-Username  : {}", username);
+            log.info("[USER-CONTEXT]   X-Auth-Roles     : {}", role);
 
-        // 최종 전달될 전체 헤더 로깅
-        HttpHeaders finalHeaders = mutatedRequest.getHeaders();
-        log.info("[USER-CONTEXT] --- Final Headers to Microservice ---");
-        finalHeaders.forEach((key, values) ->
-                log.info("[USER-CONTEXT]   {} : {}", key, maskHeaderValue(key, String.join(", ", values)))
-        );
-        log.info("[USER-CONTEXT] =================================================");
+            // 최종 전달될 전체 헤더 로깅
+            HttpHeaders finalHeaders = mutatedRequest.getHeaders();
+            log.info("[USER-CONTEXT] --- Final Headers to Microservice ---");
+            finalHeaders.forEach((key, values) ->
+                    log.info("[USER-CONTEXT]   {} : {}", key, maskHeaderValue(key, String.join(", ", values)))
+            );
+            log.info("[USER-CONTEXT] =================================================");
+        }
 
         return chain.filter(exchange.mutate().request(mutatedRequest).build());
     }

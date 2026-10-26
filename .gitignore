@@ -39,3 +39,9 @@ out/
 ### ENV FILE ###
 .env.prod
 .env.dev
+.env*
+!.env.example
+!.env.sample
+!.env.local.sample
+
+/logs/

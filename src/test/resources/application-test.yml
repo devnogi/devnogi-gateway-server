@@ -12,8 +12,20 @@ spring:
               maxBackoff: 5s
               factor: 2
               basedOnPreviousValue: true
-      # main의 routes 설정을 그대로 가져옵니다.
+      # main routes, including Auth and legacy OAuth entry points.
       routes:
+        - id: devnogi-auth-server
+          uri: lb://auth-service
+          predicates:
+            - Path=/das/**
+          filters:
+            - StripPrefix=1
+
+        - id: devnogi-auth-server-oauth
+          uri: lb://auth-service
+          predicates:
+            - Path=/login/oauth2/code/**
+
         - id: devnogi-auth-server
           uri: lb://auth-service
           predicates:
@@ -47,8 +59,8 @@ spring:
             community-service:
               - uri: http://localhost:8082
 
-# 테스트 시에는 로그를 더 자세히 보는 것이 좋으므로 DEBUG로 설정
+# Framework DEBUG may print authentication request URIs and headers.
 logging:
   level:
-    org.springframework.cloud.gateway: DEBUG
-    reactor.netty.http.client: DEBUG
+    org.springframework.cloud.gateway: WARN
+    reactor.netty.http.client: WARN

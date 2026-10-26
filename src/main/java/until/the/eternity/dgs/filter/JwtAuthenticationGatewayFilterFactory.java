@@ -36,25 +36,29 @@ public class JwtAuthenticationGatewayFilterFactory
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
             ServerHttpRequest request = exchange.getRequest();
-            String path = request.getURI().getPath();
+            boolean sensitive = SensitiveAuthLogPolicy.isSensitive(exchange);
+            String path = sensitive ? SensitiveAuthLogPolicy.safePath(exchange) : request.getURI().getPath();
             String method = request.getMethod() != null ? request.getMethod().name() : "UNKNOWN";
 
-            log.info("[JWT-DEBUG] ========== JWT Filter Start ==========");
-            log.info("[JWT-DEBUG] Request: {} {}", method, path);
-            log.info("[JWT-DEBUG] Origin: {}", request.getHeaders().getOrigin());
-            log.info("[JWT-DEBUG] All Headers: {}", request.getHeaders().toSingleValueMap());
+            if (sensitive) {
+                log.info("[JWT-DEBUG] Auth request: method={}, path={}", method, path);
+            } else {
+                log.info("[JWT-DEBUG] ========== JWT Filter Start ==========");
+                log.info("[JWT-DEBUG] Request: {} {}", method, path);
+                log.info("[JWT-DEBUG] Origin: {}", request.getHeaders().getOrigin());
+                log.info("[JWT-DEBUG] All Headers: {}", request.getHeaders().toSingleValueMap());
 
-            // 쿠키 정보 로깅
-            MultiValueMap<String, HttpCookie> cookies = request.getCookies();
-            log.info("[JWT-DEBUG] Cookies: {}", cookies.keySet());
-            cookies.forEach((name, cookieList) ->
-                cookieList.forEach(cookie ->
-                    log.info("[JWT-DEBUG] Cookie '{}': {} (length: {})",
-                        name,
-                        cookie.getValue().length() > 20 ? cookie.getValue().substring(0, 20) + "..." : cookie.getValue(),
-                        cookie.getValue().length())
-                )
-            );
+                MultiValueMap<String, HttpCookie> cookies = request.getCookies();
+                log.info("[JWT-DEBUG] Cookies: {}", cookies.keySet());
+                cookies.forEach((name, cookieList) ->
+                    cookieList.forEach(cookie ->
+                        log.info("[JWT-DEBUG] Cookie '{}': {} (length: {})",
+                            name,
+                            cookie.getValue().length() > 20 ? cookie.getValue().substring(0, 20) + "..." : cookie.getValue(),
+                            cookie.getValue().length())
+                    )
+                );
+            }
 
             // Step 1: 클라이언트가 보낸 X-Auth-* 헤더 제거 (보안상 중요!)
             request = stripInternalHeaders(request);
@@ -68,38 +72,46 @@ public class JwtAuthenticationGatewayFilterFactory
                 token = extractTokenFromCookie(request);
                 if (token != null) {
                     tokenSource = "cookie";
-                    log.info("[JWT-DEBUG] Token extracted from cookie 'access_token'");
+                    if (!sensitive) log.info("[JWT-DEBUG] Token extracted from cookie 'access_token'");
                 }
             } else {
                 tokenSource = "Authorization header";
-                log.info("[JWT-DEBUG] Token extracted from Authorization header");
+                if (!sensitive) log.info("[JWT-DEBUG] Token extracted from Authorization header");
             }
 
             if (token == null) {
-                log.warn("[JWT-DEBUG] No JWT token found in Authorization header or cookies for path: {}", path);
-                log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - No Token) ==========");
+                if (!sensitive) {
+                    log.warn("[JWT-DEBUG] No JWT token found in Authorization header or cookies for path: {}", path);
+                    log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - No Token) ==========");
+                }
                 exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                 return exchange.getResponse().setComplete();
             }
 
-            log.info("[JWT-DEBUG] Token source: {}, Token length: {}", tokenSource, token.length());
-            log.info("[JWT-DEBUG] Token preview: {}...", token.length() > 50 ? token.substring(0, 50) : token);
+            if (!sensitive) {
+                log.info("[JWT-DEBUG] Token source: {}, Token length: {}", tokenSource, token.length());
+                log.info("[JWT-DEBUG] Token preview: {}...", token.length() > 50 ? token.substring(0, 50) : token);
+            }
 
             // Step 3: JWT 토큰 검증
-            if (!validateToken(token, config)) {
-                log.warn("[JWT-DEBUG] Invalid JWT token for path: {}", path);
-                log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Invalid Token) ==========");
+            if (!validateToken(token, config, sensitive)) {
+                if (!sensitive) {
+                    log.warn("[JWT-DEBUG] Invalid JWT token for path: {}", path);
+                    log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Invalid Token) ==========");
+                }
                 exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                 return exchange.getResponse().setComplete();
             }
-            log.info("[JWT-DEBUG] Token validation: PASSED");
+            if (!sensitive) log.info("[JWT-DEBUG] Token validation: PASSED");
 
             // Step 4: ACCESS 토큰만 허용 (REFRESH 토큰은 /auth/refresh에서만 사용)
             String tokenType = getTokenType(token, config);
-            log.info("[JWT-DEBUG] Token type: {}", tokenType);
+            if (!sensitive) log.info("[JWT-DEBUG] Token type: {}", tokenType);
             if (!"ACCESS".equals(tokenType)) {
-                log.warn("[JWT-DEBUG] Token type is not ACCESS: {}", tokenType);
-                log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Wrong Token Type) ==========");
+                if (!sensitive) {
+                    log.warn("[JWT-DEBUG] Token type is not ACCESS: {}", tokenType);
+                    log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Wrong Token Type) ==========");
+                }
                 exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                 return exchange.getResponse().setComplete();
             }
@@ -110,18 +122,20 @@ public class JwtAuthenticationGatewayFilterFactory
                 String username = getUsername(token, config);
                 String role = getRole(token, config);
 
-                log.info("[JWT-DEBUG] Authenticated user - ID: {}, Username: {}, Role: {}", userId, username, role);
+                if (!sensitive) log.info("[JWT-DEBUG] Authenticated user - ID: {}, Username: {}, Role: {}", userId, username, role);
 
                 // ServerWebExchange의 attributes에 사용자 정보 저장
                 exchange.getAttributes().put("userId", userId);
                 exchange.getAttributes().put("username", username);
                 exchange.getAttributes().put("role", role);
 
-                log.info("[JWT-DEBUG] ========== JWT Filter End (SUCCESS) ==========");
+                if (!sensitive) log.info("[JWT-DEBUG] ========== JWT Filter End (SUCCESS) ==========");
                 return chain.filter(exchange.mutate().request(request).build());
             } catch (Exception e) {
-                log.error("[JWT-DEBUG] Error extracting user info from token: {}", e.getMessage(), e);
-                log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Extraction Error) ==========");
+                if (!sensitive) {
+                    log.error("[JWT-DEBUG] Error extracting user info from token: {}", e.getMessage(), e);
+                    log.info("[JWT-DEBUG] ========== JWT Filter End (UNAUTHORIZED - Extraction Error) ==========");
+                }
                 exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                 return exchange.getResponse().setComplete();
             }
@@ -182,31 +196,31 @@ public class JwtAuthenticationGatewayFilterFactory
     /**
      * JWT 토큰 검증
      */
-    private boolean validateToken(String token, Config config) {
-        log.debug("[JWT-DEBUG] Validating token with issuer: {}", config.getIssuer());
+    private boolean validateToken(String token, Config config, boolean sensitive) {
+        if (!sensitive) log.debug("[JWT-DEBUG] Validating token with issuer: {}", config.getIssuer());
         try {
             Claims claims = extractAllClaims(token, config);
-            log.debug("[JWT-DEBUG] Token claims - subject: {}, issuer: {}, expiration: {}",
-                claims.getSubject(), claims.getIssuer(), claims.getExpiration());
+            if (!sensitive) log.debug("[JWT-DEBUG] Token claims - subject: {}, issuer: {}, expiration: {}",
+                    claims.getSubject(), claims.getIssuer(), claims.getExpiration());
             return true;
         } catch (SignatureException e) {
-            log.error("[JWT-DEBUG] Invalid JWT signature: {}", e.getMessage());
+            if (!sensitive) log.error("[JWT-DEBUG] Invalid JWT signature: {}", e.getMessage());
             return false;
         } catch (MalformedJwtException e) {
-            log.error("[JWT-DEBUG] Invalid JWT token (malformed): {}", e.getMessage());
+            if (!sensitive) log.error("[JWT-DEBUG] Invalid JWT token (malformed): {}", e.getMessage());
             return false;
         } catch (ExpiredJwtException e) {
-            log.error("[JWT-DEBUG] JWT token is expired: {} (expired at: {})",
-                e.getMessage(), e.getClaims() != null ? e.getClaims().getExpiration() : "unknown");
+            if (!sensitive) log.error("[JWT-DEBUG] JWT token is expired: {} (expired at: {})",
+                    e.getMessage(), e.getClaims() != null ? e.getClaims().getExpiration() : "unknown");
             return false;
         } catch (UnsupportedJwtException e) {
-            log.error("[JWT-DEBUG] JWT token is unsupported: {}", e.getMessage());
+            if (!sensitive) log.error("[JWT-DEBUG] JWT token is unsupported: {}", e.getMessage());
             return false;
         } catch (IllegalArgumentException e) {
-            log.error("[JWT-DEBUG] JWT claims string is empty: {}", e.getMessage());
+            if (!sensitive) log.error("[JWT-DEBUG] JWT claims string is empty: {}", e.getMessage());
             return false;
         } catch (Exception e) {
-            log.error("[JWT-DEBUG] Unexpected error during token validation: {}", e.getMessage(), e);
+            if (!sensitive) log.error("[JWT-DEBUG] Unexpected error during token validation: {}", e.getMessage(), e);
             return false;
         }
     }

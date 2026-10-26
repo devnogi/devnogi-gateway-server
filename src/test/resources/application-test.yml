@@ -12,16 +12,34 @@ spring:
               maxBackoff: 5s
               factor: 2
               basedOnPreviousValue: true
-      # main의 routes 설정을 그대로 가져옵니다.
+      # Auth routes match production precedence; legacy /api/auth supports existing route tests.
       routes:
         - id: devnogi-auth-server-public
+          uri: lb://auth-service
+          predicates:
+            - Path=/das/api/auth/login,/das/api/auth/refresh,/das/api/auth/register,/das/api/auth/logout
+          filters:
+            - StripPrefix=1
+
+        - id: devnogi-auth-server-oauth-start
+          uri: lb://auth-service
+          predicates:
+            - Path=/das/oauth2/authorization/**
+          filters:
+            - StripPrefix=1
+
+        - id: devnogi-auth-server
           uri: lb://auth-service
           predicates:
             - Path=/das/**
           filters:
             - StripPrefix=1
+            - name: JwtAuthentication
+              args:
+                secretKey: bWVtb25vZ2ktbG9jYWwtb25seS1zeW50aGV0aWMta2V5LTIwMjY=
+                issuer: devnogi
 
-        - id: devnogi-auth-server
+        - id: devnogi-auth-server-legacy
           uri: lb://auth-service
           predicates:
             - Path=/api/auth/**

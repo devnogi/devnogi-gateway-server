@@ -151,7 +151,7 @@ public class GatewayRouteTest {
                 .setBody(responseBody));
 
         try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
-            webTestClient.post().uri("/api/auth/login?code=" + querySecret)
+            webTestClient.post().uri("/das/api/auth/login?code=" + querySecret)
                     .header("Authorization", "Bearer " + jwtSecret)
                     .header("Cookie", "oauth_flow_binding=" + cookieSecret)
                     .header("Content-Type", "application/json")
@@ -165,16 +165,18 @@ public class GatewayRouteTest {
             RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
             assertThat(forwarded).isNotNull();
             assertThat(forwarded.getMethod()).isEqualTo("POST");
-            assertThat(forwarded.getPath()).isEqualTo("/login?code=" + querySecret);
+            assertThat(forwarded.getPath()).isEqualTo("/api/auth/login?code=" + querySecret);
             assertThat(forwarded.getHeader("Authorization")).isEqualTo("Bearer " + jwtSecret);
             assertThat(forwarded.getHeader("Cookie")).contains(cookieSecret);
             assertThat(forwarded.getBody().readUtf8()).isEqualTo(requestBody);
 
             String output = logs.output();
-            assertThat(output).contains("/api/auth/**", "devnogi-auth-server", "400");
+            assertThat(output).contains("/das/**", "devnogi-auth-server-public", "400");
             assertThat(output).doesNotContain(querySecret, cookieSecret, jwtSecret, passwordSecret,
                     proofSecret, emailSecret, locationSecret, responseCookieSecret);
-            assertThat(output).doesNotContain("/api/auth/login?", "Full URI:", "Body:", "Authorization:", "Set-Cookie:");
+            assertThat(output).doesNotContain("/das/api/auth/login?", "Full URI:", "Body:", "Authorization:", "Set-Cookie:");
+            assertThat(logs.outputFor("gateway.request")).contains("Auth request", "/das/**");
+            assertThat(logs.outputFor("gateway.response")).contains("Auth response", "/das/**", "400");
         }
     }
 
@@ -201,6 +203,37 @@ public class GatewayRouteTest {
     }
 
     @Test
+    @DisplayName("운영 Auth 교환 경로는 code와 결합 쿠키를 전달하되 로그에서 숨긴다")
+    void oauthExchangeUsesProtectedAuthRoute() throws InterruptedException {
+        String code = "exchange-code-SENTINEL-102938";
+        String binding = "exchange-binding-SENTINEL-475869";
+        String proof = "exchange-proof-SENTINEL-564738";
+        String requestBody = "{\"code\":\"" + code + "\"}";
+        String responseBody = "{\"signupProof\":\"" + proof + "\"}";
+        mockAuthService.enqueue(new MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json").setBody(responseBody));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.post().uri("/das/api/auth/oauth/exchange")
+                    .header("Cookie", "oauth_flow_binding=" + binding)
+                    .header("Content-Type", "application/json")
+                    .bodyValue(requestBody).exchange().expectStatus().isOk()
+                    .expectBody(String.class).isEqualTo(responseBody);
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getMethod()).isEqualTo("POST");
+            assertThat(forwarded.getPath()).isEqualTo("/api/auth/oauth/exchange");
+            assertThat(forwarded.getHeader("Cookie")).contains(binding);
+            assertThat(forwarded.getBody().readUtf8()).isEqualTo(requestBody);
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server")
+                    .doesNotContain(code, binding, proof);
+            assertThat(logs.outputFor("gateway.request")).contains("Auth request", "/das/**");
+            assertThat(logs.outputFor("gateway.response")).contains("Auth response", "/das/**");
+        }
+    }
+
+    @Test
     @DisplayName("Auth multipart 가입 증명은 로그에서 숨기고 요청 본문은 그대로 전달한다")
     void socialSignupMultipartDoesNotLogProof() throws InterruptedException {
         String proof = "multipart-proof-SENTINEL-112358";
@@ -210,17 +243,17 @@ public class GatewayRouteTest {
                 .setHeader("Content-Type", "application/json").setBody(response));
 
         try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
-            webTestClient.post().uri("/api/auth/signup/social")
+            webTestClient.post().uri("/das/api/auth/signup/social")
                     .body(BodyInserters.fromMultipartData("signupProof", proof).with("email", email))
                     .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo(response);
 
             RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
             assertThat(forwarded).isNotNull();
             assertThat(forwarded.getMethod()).isEqualTo("POST");
-            assertThat(forwarded.getPath()).isEqualTo("/signup/social");
+            assertThat(forwarded.getPath()).isEqualTo("/api/auth/signup/social");
             assertThat(forwarded.getHeader("Content-Type")).contains("multipart/form-data");
             assertThat(forwarded.getBody().readUtf8()).contains(proof, email);
-            assertThat(logs.output()).contains("/api/auth/**")
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server")
                     .doesNotContain(proof, email);
         }
     }
@@ -243,7 +276,7 @@ public class GatewayRouteTest {
             RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
             assertThat(forwarded).isNotNull();
             assertThat(forwarded.getPath()).isEqualTo(downstreamPath);
-            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server-public")
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server")
                     .doesNotContain(pathSecret, matrixSecret, querySecret,
                             pathSecret.substring(0, 16), matrixSecret.substring(0, 16));
         }
@@ -300,11 +333,18 @@ public class GatewayRouteTest {
                 logger.setLevel(Level.DEBUG);
             });
             rootLogger.addAppender(appender);
+            loggers.get(0).addAppender(appender);
+            loggers.get(1).addAppender(appender);
         }
 
         private String output() {
             return appender.list.stream().map(ILoggingEvent::getFormattedMessage)
                     .collect(Collectors.joining("\n"));
+        }
+
+        private String outputFor(String loggerName) {
+            return appender.list.stream().filter(event -> event.getLoggerName().equals(loggerName))
+                    .map(ILoggingEvent::getFormattedMessage).collect(Collectors.joining("\n"));
         }
 
         @Override
@@ -313,6 +353,8 @@ public class GatewayRouteTest {
                 loggers.get(i).setLevel(previousLevels.get(i));
             }
             rootLogger.detachAppender(appender);
+            loggers.get(0).detachAppender(appender);
+            loggers.get(1).detachAppender(appender);
             appender.stop();
         }
     }

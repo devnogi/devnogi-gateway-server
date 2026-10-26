@@ -82,5 +82,5 @@ management:
 logging:
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
-    org.springframework.cloud.gateway: ${LOG_LEVEL_GATEWAY:DEBUG}
-    reactor.netty.http.client: ${LOG_LEVEL_NETTY:DEBUG}
+    org.springframework.cloud.gateway: WARN
+    reactor.netty.http.client: WARN

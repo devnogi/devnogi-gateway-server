@@ -40,7 +40,7 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
     private void logPreRoute(ServerWebExchange exchange, ServerHttpRequest request) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
             ROUTE_LOG.info("Auth incoming request: method={}, path={}",
-                    request.getMethod(), request.getPath().value());
+                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange));
             return;
         }
 
@@ -56,7 +56,7 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
     private void logPostRoute(ServerWebExchange exchange, ServerHttpRequest request) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
             ROUTE_LOG.info("Auth routing decision: method={}, path={}, route={}",
-                    request.getMethod(), request.getPath().value(), SensitiveAuthLogPolicy.routeId(exchange));
+                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange));
             return;
         }
 

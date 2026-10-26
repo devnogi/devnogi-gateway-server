@@ -19,11 +19,14 @@ import org.springframework.mock.web.server.MockServerWebExchange;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import until.the.eternity.dgs.filter.RouteLoggingFilter;
+import until.the.eternity.dgs.filter.JwtAuthenticationGatewayFilterFactory;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -168,7 +171,7 @@ public class GatewayRouteTest {
             assertThat(forwarded.getBody().readUtf8()).isEqualTo(requestBody);
 
             String output = logs.output();
-            assertThat(output).contains("/api/auth/login", "devnogi-auth-server", "400");
+            assertThat(output).contains("/api/auth/**", "devnogi-auth-server", "400");
             assertThat(output).doesNotContain(querySecret, cookieSecret, jwtSecret, passwordSecret,
                     proofSecret, emailSecret, locationSecret, responseCookieSecret);
             assertThat(output).doesNotContain("/api/auth/login?", "Full URI:", "Body:", "Authorization:", "Set-Cookie:");
@@ -192,7 +195,7 @@ public class GatewayRouteTest {
             assertThat(forwarded).isNotNull();
             assertThat(forwarded.getPath()).isEqualTo("/login/oauth2/code/kakao?code=" + code);
             String output = logs.output();
-            assertThat(output).contains("/login/oauth2/code/kakao");
+            assertThat(output).contains("/login/oauth2/code/**");
             assertThat(output).doesNotContain(code, location);
         }
     }
@@ -217,8 +220,54 @@ public class GatewayRouteTest {
             assertThat(forwarded.getPath()).isEqualTo("/signup/social");
             assertThat(forwarded.getHeader("Content-Type")).contains("multipart/form-data");
             assertThat(forwarded.getBody().readUtf8()).contains(proof, email);
-            assertThat(logs.output()).contains("/api/auth/signup/social")
+            assertThat(logs.output()).contains("/api/auth/**")
                     .doesNotContain(proof, email);
+        }
+    }
+
+    @Test
+    @DisplayName("실제 /das 라우트의 경로 세그먼트와 matrix 비밀값은 로그에서 숨기고 전달한다")
+    void authPathSecretsAreNotLoggedButForwarded() throws InterruptedException {
+        String pathSecret = "path-code-SENTINEL-987654";
+        String matrixSecret = "matrix-proof-SENTINEL-456789";
+        String querySecret = "query-code-SENTINEL-654321";
+        String requestPath = "/das/api/auth/login/" + pathSecret + ";signupProof=" + matrixSecret;
+        String downstreamPath = "/api/auth/login/" + pathSecret + ";signupProof=" + matrixSecret
+                + "?code=" + querySecret;
+        mockAuthService.enqueue(new MockResponse().setResponseCode(200).setBody("forwarded"));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient.get().uri(requestPath + "?code=" + querySecret)
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("forwarded");
+
+            RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getPath()).isEqualTo(downstreamPath);
+            assertThat(logs.output()).contains("/das/**", "devnogi-auth-server-public")
+                    .doesNotContain(pathSecret, matrixSecret, querySecret,
+                            pathSecret.substring(0, 16), matrixSecret.substring(0, 16));
+        }
+    }
+
+    @Test
+    @DisplayName("Auth JWT 검증 오류는 토큰과 matrix 경로를 로그에 남기지 않는다")
+    void invalidAuthJwtDoesNotLeakThroughErrorLog() {
+        String pathSecret = "jwt-path-SENTINEL-765432";
+        String tokenSecret = "jwt-header-SENTINEL-234567";
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/das/api/user/info;code=" + pathSecret)
+                .header("Authorization", "Bearer " + tokenSecret));
+        JwtAuthenticationGatewayFilterFactory.Config config = new JwtAuthenticationGatewayFilterFactory.Config();
+        config.setSecretKey(Base64.getEncoder().encodeToString(
+                "synthetic-test-key-with-at-least-32-bytes".getBytes(StandardCharsets.UTF_8)));
+        config.setIssuer("synthetic-issuer");
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            new JwtAuthenticationGatewayFilterFactory().apply(config)
+                    .filter(exchange, ignored -> Mono.error(new AssertionError("invalid token passed"))).block();
+            assertThat(exchange.getResponse().getStatusCode().value()).isEqualTo(401);
+            assertThat(logs.output()).contains("/das/**").doesNotContain(pathSecret, tokenSecret,
+                    pathSecret.substring(0, 12), tokenSecret.substring(0, 12));
         }
     }
 
@@ -237,16 +286,20 @@ public class GatewayRouteTest {
         private final List<Logger> loggers = List.of(
                 (Logger) LoggerFactory.getLogger("gateway.request"),
                 (Logger) LoggerFactory.getLogger("gateway.response"),
-                (Logger) LoggerFactory.getLogger("gateway.route"));
+                (Logger) LoggerFactory.getLogger("gateway.route"),
+                (Logger) LoggerFactory.getLogger("until.the.eternity.dgs.filter.UserContextFilter"),
+                (Logger) LoggerFactory.getLogger("until.the.eternity.dgs.filter.CorsDebugFilter"),
+                (Logger) LoggerFactory.getLogger("until.the.eternity.dgs.filter.JwtAuthenticationGatewayFilterFactory"));
         private final List<Level> previousLevels = loggers.stream().map(Logger::getLevel).toList();
+        private final Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
         private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
         private CapturedGatewayLogs() {
             appender.start();
             loggers.forEach(logger -> {
                 logger.setLevel(Level.DEBUG);
-                logger.addAppender(appender);
             });
+            rootLogger.addAppender(appender);
         }
 
         private String output() {
@@ -257,9 +310,9 @@ public class GatewayRouteTest {
         @Override
         public void close() {
             for (int i = 0; i < loggers.size(); i++) {
-                loggers.get(i).detachAppender(appender);
                 loggers.get(i).setLevel(previousLevels.get(i));
             }
+            rootLogger.detachAppender(appender);
             appender.stop();
         }
     }

@@ -20,7 +20,12 @@ class SensitiveAuthLogPolicyTest {
                     MockServerHttpRequest.get(path + "?code=synthetic-secret"));
             assertThat(SensitiveAuthLogPolicy.isSensitive(exchange)).as(path).isTrue();
             assertThat(SensitiveAuthLogPolicy.routeId(exchange)).isEqualTo("UNKNOWN");
+            assertThat(SensitiveAuthLogPolicy.safePath(exchange)).as(path).doesNotContain("synthetic-secret");
         }
+        MockServerWebExchange matrix = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/das;code=matrix-secret/api/auth/login;proof=other-secret"));
+        assertThat(SensitiveAuthLogPolicy.isSensitive(matrix)).isTrue();
+        assertThat(SensitiveAuthLogPolicy.safePath(matrix)).isEqualTo("/das/**");
     }
 
     @Test
@@ -34,6 +39,7 @@ class SensitiveAuthLogPolicyTest {
                 .predicate(serverWebExchange -> true).build();
         exchange.getAttributes().put(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR, authRoute);
         assertThat(SensitiveAuthLogPolicy.isSensitive(exchange)).isTrue();
+        assertThat(SensitiveAuthLogPolicy.safePath(exchange)).isEqualTo("auth-route");
 
         Route communityRoute = Route.async().id("devnogi-community-server")
                 .uri(URI.create("http://localhost:8093"))

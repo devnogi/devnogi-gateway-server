@@ -29,7 +29,7 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
     private static void logRequest(final ServerWebExchange exchange, final ServerHttpRequest request, final String body) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
             REQ_LOG.info("Auth request: method={}, path={}, route={}",
-                    request.getMethod(), request.getPath().value(), SensitiveAuthLogPolicy.routeId(exchange));
+                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange));
             return;
         }
 

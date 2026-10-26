@@ -31,7 +31,7 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
     ) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
             RES_LOG.info("Auth response: method={}, path={}, route={}, status={}",
-                    request.getMethod(), request.getPath().value(), SensitiveAuthLogPolicy.routeId(exchange),
+                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange),
                     response.getStatusCode());
             return;
         }

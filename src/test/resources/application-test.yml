@@ -14,6 +14,13 @@ spring:
               basedOnPreviousValue: true
       # main의 routes 설정을 그대로 가져옵니다.
       routes:
+        - id: devnogi-auth-server-public
+          uri: lb://auth-service
+          predicates:
+            - Path=/das/**
+          filters:
+            - StripPrefix=1
+
         - id: devnogi-auth-server
           uri: lb://auth-service
           predicates:
@@ -52,8 +59,8 @@ spring:
             community-service:
               - uri: http://localhost:8082
 
-# 테스트 시에는 로그를 더 자세히 보는 것이 좋으므로 DEBUG로 설정
+# 프레임워크 DEBUG에는 인증 요청 URI와 헤더가 포함될 수 있다.
 logging:
   level:
-    org.springframework.cloud.gateway: DEBUG
-    reactor.netty.http.client: DEBUG
+    org.springframework.cloud.gateway: WARN
+    reactor.netty.http.client: WARN

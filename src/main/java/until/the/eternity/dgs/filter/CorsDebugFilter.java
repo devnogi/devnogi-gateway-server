@@ -20,6 +20,12 @@ public class CorsDebugFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         String method = request.getMethod() != null ? request.getMethod().name() : "UNKNOWN";
+        if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
+            log.info("[CORS-DEBUG] Auth request: method={}, path={}", method,
+                    SensitiveAuthLogPolicy.safePath(exchange));
+            return chain.filter(exchange).then(Mono.fromRunnable(() ->
+                    log.info("[CORS-DEBUG] Auth response: status={}", exchange.getResponse().getStatusCode())));
+        }
         String path = request.getURI().getPath();
         String origin = request.getHeaders().getOrigin();
 

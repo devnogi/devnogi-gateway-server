@@ -29,6 +29,13 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
             final ServerHttpResponse response,
             final String body
     ) {
+        if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
+            RES_LOG.info("Auth response: method={}, path={}, route={}, status={}",
+                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange),
+                    response.getStatusCode());
+            return;
+        }
+
         // 라우팅 정보 추출
         Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
         String routeId = route != null ? route.getId() : "UNKNOWN";

@@ -42,12 +42,18 @@ jobs:
       - name: Prepare SSH
         env:
           PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+          SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+          SERVER_PORT: ${{ secrets.PROD_SERVER_PORT }}
         run: |
           umask 077
           mkdir -p ~/.ssh
+          test -n "$KNOWN_HOSTS" && test -n "$SERVER_HOST" && test -n "$SERVER_PORT" || { echo 'Missing trusted SSH host configuration' >&2; exit 1; }
           printf '%s\n' "$PRIVATE_KEY" | tr -d '\r' > ~/.ssh/my-key.pem
           chmod 400 ~/.ssh/my-key.pem
-          ssh-keyscan -p '${{ secrets.PROD_SERVER_PORT }}' -H '${{ secrets.PROD_SERVER_HOST }}' >> ~/.ssh/known_hosts
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keygen -F "[$SERVER_HOST]:$SERVER_PORT" -f ~/.ssh/known_hosts >/dev/null || { echo 'Trusted host key does not match target' >&2; exit 1; }
       - name: Stage candidate
         env:
           PROD_ENV: ${{ secrets.ENV_FILE_PROD }}
@@ -84,11 +90,11 @@ jobs:
                 count=$((count + 1)); [ "$count" -lt 60 ] || return 1; sleep 5
               done
             }
-            if ! docker compose -f docker-compose-prod.yml --env-file .env.prod up -d --no-deps --wait --wait-timeout 360 devnogi-gateway-app || ! health_ok; then
+            if ! docker compose -p devnogi-gateway -f docker-compose-prod.yml --env-file .env.prod up -d --no-deps --wait --wait-timeout 360 devnogi-gateway-app || ! health_ok; then
               echo 'Deployment failed; restoring prior image' >&2
               if [ -n "$old_ref" ]; then
                 printf 'services:\n  devnogi-gateway-app:\n    image: %s\n' "$old_ref" > rollback.yml
-                IMAGE_REF="$old_ref" docker compose -f /opt/devnogi-gateway/docker-compose-prod.yml -f "$PWD/rollback.yml" --env-file /opt/devnogi-gateway/.env.prod up -d --no-deps --wait --wait-timeout 360 devnogi-gateway-app || echo 'Rollback failed; operator intervention required' >&2
+                IMAGE_REF="$old_ref" docker compose -p devnogi-gateway -f /opt/devnogi-gateway/docker-compose-prod.yml -f "$PWD/rollback.yml" --env-file /opt/devnogi-gateway/.env.prod up -d --no-deps --wait --wait-timeout 360 devnogi-gateway-app || echo 'Rollback failed; operator intervention required' >&2
               else
                 echo 'No previous container exists; operator intervention required' >&2
               fi

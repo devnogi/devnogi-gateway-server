@@ -71,6 +71,7 @@ GitHub Actions는 main에 병합된 SHA를 빌드하고 이미지 digest를 운�
 
 - **main 브랜치** push → `push-cd-prod.yml` 실행 → 운영 서버 배포. 수동 실행은 main에서 복구용으로 사용할 수 있습니다.
 - `main` 대상 PR은 `verify.yml`의 `verify`·`secret-scan` 검사로 검증합니다.
+- 운영 서버의 신뢰된 SSH 호스트 키 항목은 production 환경의 `PROD_SSH_KNOWN_HOSTS` secret으로 등록해야 합니다. 배포 시 대상 호스트 및 포트 일치와 SSH 호스트 키를 검증합니다.
 
 ### Docker 빌드
 

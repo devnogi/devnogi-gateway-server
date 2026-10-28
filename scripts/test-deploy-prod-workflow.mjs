@@ -9,6 +9,8 @@ test('only main push or main manual dispatch can deploy and deployments serializ
   assert.match(workflow, /^on:\n  push:\n    branches: \[main\]\n  workflow_dispatch:/m);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main' && \(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'\)/);
   assert.match(workflow, /group: gateway-production-deploy\n  cancel-in-progress: false/);
+  assert.match(workflow, /PROD_SSH_KNOWN_HOSTS/);
+  assert.doesNotMatch(workflow, /ssh-keyscan/);
   assert.doesNotMatch(workflow, /refs\/heads\/dev|pull_request:/);
 });
 
@@ -20,4 +22,5 @@ test('deployment uses build digest and restores previous image and config on fai
   assert.match(workflow, /Previous configuration missing/);
   assert.match(workflow, /! health_ok; then[\s\S]*image: %s[\s\S]*docker-compose-prod.yml -f "\$PWD\/rollback.yml"[\s\S]*exit 1/);
   assert.doesNotMatch(workflow, /docker compose[^\n]* down/);
+  assert.equal((workflow.match(/docker compose -p devnogi-gateway/g) || []).length, 2);
 });

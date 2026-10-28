@@ -1,5 +1,7 @@
 plugins {
 	java
+	pmd
+	id("com.diffplug.spotless") version "6.25.0"
 	id("org.springframework.boot") version "3.2.5" // 안정 버전
 	id("io.spring.dependency-management") version "1.1.7"
 }
@@ -59,6 +61,37 @@ dependencyManagement {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+}
+
+spotless {
+	java {
+		googleJavaFormat().aosp()
+		removeUnusedImports()
+		importOrder()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}
+
+pmd {
+	toolVersion = "7.24.0"
+	ruleSets = emptyList()
+	ruleSetFiles = files("config/pmd/unused.xml")
+}
+
+tasks.named("check") { dependsOn("spotlessCheck") }
+tasks.register("lint") {
+	group = "verification"
+	description = "Check formatting, imports, and unused code."
+	dependsOn("spotlessCheck", "pmdMain", "pmdTest")
+}
+tasks.register<Exec>("installGitHooks") {
+	group = "build setup"
+	description = "Install the repository-local Git hooks."
+	commandLine("git", "config", "--local", "extensions.worktreeConfig", "true")
+	doLast {
+		exec { commandLine("git", "config", "--worktree", "core.hooksPath", ".githooks") }
+	}
 }
 
 // Verification must not format sources or regenerate checked-in documentation.

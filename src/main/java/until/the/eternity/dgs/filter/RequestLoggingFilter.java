@@ -16,9 +16,6 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
 @Component
 @RequiredArgsConstructor
 public class RequestLoggingFilter implements GlobalFilter, Ordered {
@@ -26,10 +23,14 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
     private static final Logger REQ_LOG = LoggerFactory.getLogger("gateway.request");
     private final ModifyRequestBodyGatewayFilterFactory modifyRequestBodyGatewayFilterFactory;
 
-    private static void logRequest(final ServerWebExchange exchange, final ServerHttpRequest request, final String body) {
+    private static void logRequest(
+            final ServerWebExchange exchange, final ServerHttpRequest request, final String body) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
-            REQ_LOG.info("Auth request: method={}, path={}, route={}",
-                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange));
+            REQ_LOG.info(
+                    "Auth request: method={}, path={}, route={}",
+                    request.getMethod(),
+                    SensitiveAuthLogPolicy.safePath(exchange),
+                    SensitiveAuthLogPolicy.routeId(exchange));
             return;
         }
 
@@ -50,9 +51,10 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
         // 쿼리 파라미터
         if (!request.getQueryParams().isEmpty()) {
             REQ_LOG.info("--- Query Parameters ---");
-            request.getQueryParams().forEach((key, values) ->
-                    REQ_LOG.info("  {} = {}", key, String.join(", ", values))
-            );
+            request.getQueryParams()
+                    .forEach(
+                            (key, values) ->
+                                    REQ_LOG.info("  {} = {}", key, String.join(", ", values)));
         }
 
         // 인증 관련 헤더
@@ -60,9 +62,8 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
         String authHeader = request.getHeaders().getFirst("Authorization");
         if (authHeader != null) {
             // 토큰 마스킹 (앞 30자만 표시)
-            String maskedAuth = authHeader.length() > 37
-                    ? authHeader.substring(0, 37) + "...***"
-                    : authHeader;
+            String maskedAuth =
+                    authHeader.length() > 37 ? authHeader.substring(0, 37) + "...***" : authHeader;
             REQ_LOG.info("Authorization: {}", maskedAuth);
         } else {
             REQ_LOG.info("Authorization: (empty)");
@@ -75,18 +76,21 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
             REQ_LOG.info("Cookies: (none)");
         } else {
             REQ_LOG.info("Cookie count: {}", cookies.size());
-            cookies.forEach((name, cookieList) -> {
-                for (HttpCookie cookie : cookieList) {
-                    String value = cookie.getValue();
-                    // 민감한 쿠키 마스킹
-                    if (name.toLowerCase().contains("token") || name.toLowerCase().contains("session")) {
-                        value = value.length() > 20
-                                ? value.substring(0, 20) + "...***"
-                                : value;
-                    }
-                    REQ_LOG.info("  {} = {}", name, value);
-                }
-            });
+            cookies.forEach(
+                    (name, cookieList) -> {
+                        for (HttpCookie cookie : cookieList) {
+                            String value = cookie.getValue();
+                            // 민감한 쿠키 마스킹
+                            if (name.toLowerCase().contains("token")
+                                    || name.toLowerCase().contains("session")) {
+                                value =
+                                        value.length() > 20
+                                                ? value.substring(0, 20) + "...***"
+                                                : value;
+                            }
+                            REQ_LOG.info("  {} = {}", name, value);
+                        }
+                    });
         }
 
         // 주요 헤더
@@ -110,17 +114,17 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
         // 요청 바디
         if (body != null && !body.isEmpty()) {
             REQ_LOG.info("--- Request Body ---");
-            String truncatedBody = body.length() > 500
-                    ? body.substring(0, 500) + "...(truncated)"
-                    : body;
+            String truncatedBody =
+                    body.length() > 500 ? body.substring(0, 500) + "...(truncated)" : body;
             REQ_LOG.info("Body: {}", truncatedBody);
         }
 
         // 전체 헤더 (DEBUG 레벨)
         REQ_LOG.debug("--- All Headers ---");
-        request.getHeaders().forEach((key, values) ->
-                REQ_LOG.debug("  {} = {}", key, String.join(", ", values))
-        );
+        request.getHeaders()
+                .forEach(
+                        (key, values) ->
+                                REQ_LOG.debug("  {} = {}", key, String.join(", ", values)));
 
         REQ_LOG.info("======================================");
     }
@@ -136,11 +140,13 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
     private ModifyRequestBodyGatewayFilterFactory.Config modifyRequestBodyGatewayFilterConfig() {
 
         return new ModifyRequestBodyGatewayFilterFactory.Config()
-                .setRewriteFunction(String.class, String.class, (exchange, body) -> {
+                .setRewriteFunction(
+                        String.class,
+                        String.class,
+                        (exchange, body) -> {
                             logRequest(exchange, exchange.getRequest(), body);
                             return Mono.justOrEmpty(body);
-                        }
-                );
+                        });
     }
 
     @Override

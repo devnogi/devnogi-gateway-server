@@ -7,13 +7,12 @@ import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
+import java.util.Base64;
+import javax.crypto.SecretKey;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import until.the.eternity.dgs.config.JwtProperties;
-
-import javax.crypto.SecretKey;
-import java.util.Base64;
 
 @Slf4j
 @Component
@@ -22,9 +21,7 @@ public class JwtTokenProvider {
 
     private final JwtProperties jwtProperties;
 
-    /**
-     * Secret Key 생성
-     */
+    /** Secret Key 생성 */
     private SecretKey getSecretKey() {
         byte[] keyBytes = Base64.getDecoder().decode(jwtProperties.getSecretKey());
         return Keys.hmacShaKeyFor(keyBytes);

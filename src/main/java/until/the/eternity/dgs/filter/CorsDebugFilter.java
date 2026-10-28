@@ -21,10 +21,17 @@ public class CorsDebugFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         String method = request.getMethod() != null ? request.getMethod().name() : "UNKNOWN";
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
-            log.info("[CORS-DEBUG] Auth request: method={}, path={}", method,
+            log.info(
+                    "[CORS-DEBUG] Auth request: method={}, path={}",
+                    method,
                     SensitiveAuthLogPolicy.safePath(exchange));
-            return chain.filter(exchange).then(Mono.fromRunnable(() ->
-                    log.info("[CORS-DEBUG] Auth response: status={}", exchange.getResponse().getStatusCode())));
+            return chain.filter(exchange)
+                    .then(
+                            Mono.fromRunnable(
+                                    () ->
+                                            log.info(
+                                                    "[CORS-DEBUG] Auth response: status={}",
+                                                    exchange.getResponse().getStatusCode())));
         }
         String path = request.getURI().getPath();
         String origin = request.getHeaders().getOrigin();
@@ -36,11 +43,14 @@ public class CorsDebugFilter implements GlobalFilter, Ordered {
 
         // Preflight 요청인지 확인
         if (HttpMethod.OPTIONS.matches(method)) {
-            String accessControlRequestMethod = request.getHeaders().getFirst(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
-            String accessControlRequestHeaders = request.getHeaders().getFirst(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
+            String accessControlRequestMethod =
+                    request.getHeaders().getFirst(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+            String accessControlRequestHeaders =
+                    request.getHeaders().getFirst(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
             log.info("[CORS-DEBUG] PREFLIGHT request detected!");
             log.info("[CORS-DEBUG] Access-Control-Request-Method: {}", accessControlRequestMethod);
-            log.info("[CORS-DEBUG] Access-Control-Request-Headers: {}", accessControlRequestHeaders);
+            log.info(
+                    "[CORS-DEBUG] Access-Control-Request-Headers: {}", accessControlRequestHeaders);
         }
 
         // 쿠키 관련 헤더 확인
@@ -57,21 +67,34 @@ public class CorsDebugFilter implements GlobalFilter, Ordered {
             log.info("[CORS-DEBUG] No Cookie header");
         }
 
-        return chain.filter(exchange).then(Mono.fromRunnable(() -> {
-            ServerHttpResponse response = exchange.getResponse();
-            HttpHeaders responseHeaders = response.getHeaders();
+        return chain.filter(exchange)
+                .then(
+                        Mono.fromRunnable(
+                                () -> {
+                                    ServerHttpResponse response = exchange.getResponse();
+                                    HttpHeaders responseHeaders = response.getHeaders();
 
-            log.info("[CORS-DEBUG] Response Status: {}", response.getStatusCode());
-            log.info("[CORS-DEBUG] Access-Control-Allow-Origin: {}",
-                responseHeaders.getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
-            log.info("[CORS-DEBUG] Access-Control-Allow-Credentials: {}",
-                responseHeaders.getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
-            log.info("[CORS-DEBUG] Access-Control-Allow-Methods: {}",
-                responseHeaders.getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS));
-            log.info("[CORS-DEBUG] Access-Control-Allow-Headers: {}",
-                responseHeaders.getFirst(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS));
-            log.info("[CORS-DEBUG] ========== CORS Debug End ==========");
-        }));
+                                    log.info(
+                                            "[CORS-DEBUG] Response Status: {}",
+                                            response.getStatusCode());
+                                    log.info(
+                                            "[CORS-DEBUG] Access-Control-Allow-Origin: {}",
+                                            responseHeaders.getFirst(
+                                                    HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+                                    log.info(
+                                            "[CORS-DEBUG] Access-Control-Allow-Credentials: {}",
+                                            responseHeaders.getFirst(
+                                                    HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+                                    log.info(
+                                            "[CORS-DEBUG] Access-Control-Allow-Methods: {}",
+                                            responseHeaders.getFirst(
+                                                    HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS));
+                                    log.info(
+                                            "[CORS-DEBUG] Access-Control-Allow-Headers: {}",
+                                            responseHeaders.getFirst(
+                                                    HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS));
+                                    log.info("[CORS-DEBUG] ========== CORS Debug End ==========");
+                                }));
     }
 
     @Override

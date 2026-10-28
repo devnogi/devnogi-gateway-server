@@ -27,11 +27,13 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
             final ServerWebExchange exchange,
             final ServerHttpRequest request,
             final ServerHttpResponse response,
-            final String body
-    ) {
+            final String body) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
-            RES_LOG.info("Auth response: method={}, path={}, route={}, status={}",
-                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange),
+            RES_LOG.info(
+                    "Auth response: method={}, path={}, route={}, status={}",
+                    request.getMethod(),
+                    SensitiveAuthLogPolicy.safePath(exchange),
+                    SensitiveAuthLogPolicy.routeId(exchange),
                     response.getStatusCode());
             return;
         }
@@ -42,7 +44,9 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
         String routeUri = route != null ? route.getUri().toString() : "UNKNOWN";
 
         HttpStatusCode statusCode = response.getStatusCode();
-        boolean isError = statusCode != null && (statusCode.is4xxClientError() || statusCode.is5xxServerError());
+        boolean isError =
+                statusCode != null
+                        && (statusCode.is4xxClientError() || statusCode.is5xxServerError());
 
         // 에러 응답은 ERROR 레벨로 로깅
         if (isError) {
@@ -68,11 +72,14 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
         // Set-Cookie 헤더 (쿠키 설정 확인)
         if (response.getHeaders().containsKey("Set-Cookie")) {
             RES_LOG.info("--- Set-Cookie Headers ---");
-            response.getHeaders().get("Set-Cookie").forEach(cookie -> {
-                // 쿠키 값 마스킹
-                String maskedCookie = maskCookieValue(cookie);
-                RES_LOG.info("  {}", maskedCookie);
-            });
+            response.getHeaders()
+                    .get("Set-Cookie")
+                    .forEach(
+                            cookie -> {
+                                // 쿠키 값 마스킹
+                                String maskedCookie = maskCookieValue(cookie);
+                                RES_LOG.info("  {}", maskedCookie);
+                            });
         }
 
         // CORS 헤더
@@ -87,9 +94,13 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
         // 응답 바디
         if (body != null && !body.isEmpty()) {
             RES_LOG.info("--- Response Body ---");
-            String truncatedBody = body.length() > 1000
-                    ? body.substring(0, 1000) + "...(truncated, total: " + body.length() + " chars)"
-                    : body;
+            String truncatedBody =
+                    body.length() > 1000
+                            ? body.substring(0, 1000)
+                                    + "...(truncated, total: "
+                                    + body.length()
+                                    + " chars)"
+                            : body;
 
             if (isError) {
                 RES_LOG.error("Body: {}", truncatedBody);
@@ -100,9 +111,10 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
 
         // 전체 응답 헤더 (DEBUG 레벨)
         RES_LOG.debug("--- All Response Headers ---");
-        response.getHeaders().forEach((key, values) ->
-                RES_LOG.debug("  {} = {}", key, String.join(", ", values))
-        );
+        response.getHeaders()
+                .forEach(
+                        (key, values) ->
+                                RES_LOG.debug("  {} = {}", key, String.join(", ", values)));
 
         if (isError) {
             RES_LOG.error("==========================================");
@@ -111,9 +123,7 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
         }
     }
 
-    /**
-     * Set-Cookie 헤더의 토큰 값 마스킹
-     */
+    /** Set-Cookie 헤더의 토큰 값 마스킹 */
     private static String maskCookieValue(String cookieHeader) {
         if (cookieHeader == null) return null;
 
@@ -133,9 +143,8 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
                     value = cookieHeader.substring(eqIndex + 1);
                 }
 
-                String maskedValue = value.length() > 20
-                        ? value.substring(0, 20) + "...***"
-                        : value;
+                String maskedValue =
+                        value.length() > 20 ? value.substring(0, 20) + "...***" : value;
 
                 return name + maskedValue + rest;
             }
@@ -154,11 +163,14 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
     private ModifyResponseBodyGatewayFilterFactory.Config modifyResponseGatewayFilterConfig() {
 
         return new ModifyResponseBodyGatewayFilterFactory.Config()
-                .setRewriteFunction(String.class, String.class, (exchange, body) -> {
-                            logResponse(exchange, exchange.getRequest(), exchange.getResponse(), body);
+                .setRewriteFunction(
+                        String.class,
+                        String.class,
+                        (exchange, body) -> {
+                            logResponse(
+                                    exchange, exchange.getRequest(), exchange.getResponse(), body);
                             return Mono.justOrEmpty(body);
-                        }
-                );
+                        });
     }
 
     @Override

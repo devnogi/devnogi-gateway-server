@@ -10,6 +10,10 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "jwt")
 public class JwtProperties {
+    // Spring binds these properties and Lombok generates their accessors.
+    @SuppressWarnings("PMD.UnusedPrivateField")
     private String secretKey;
+
+    @SuppressWarnings("PMD.UnusedPrivateField")
     private String issuer;
 }

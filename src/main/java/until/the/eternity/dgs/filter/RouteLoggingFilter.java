@@ -1,5 +1,6 @@
 package until.the.eternity.dgs.filter;
 
+import java.net.URI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -12,12 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
-
-/**
- * 라우팅 결정 시점에 라우팅 정보를 로깅하는 필터
- * 요청이 어떤 백엔드 서비스로 라우팅되는지 명확하게 보여줍니다
- */
+/** 라우팅 결정 시점에 라우팅 정보를 로깅하는 필터 요청이 어떤 백엔드 서비스로 라우팅되는지 명확하게 보여줍니다 */
 @Component
 public class RouteLoggingFilter implements GlobalFilter, Ordered {
 
@@ -31,23 +27,27 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
         logPreRoute(exchange, request);
 
         return chain.filter(exchange)
-                .doOnSubscribe(subscription -> {
-                    // 라우팅 결정 후 로깅
-                    logPostRoute(exchange, request);
-                });
+                .doOnSubscribe(
+                        subscription -> {
+                            // 라우팅 결정 후 로깅
+                            logPostRoute(exchange, request);
+                        });
     }
 
     private void logPreRoute(ServerWebExchange exchange, ServerHttpRequest request) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
-            ROUTE_LOG.info("Auth incoming request: method={}, path={}",
-                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange));
+            ROUTE_LOG.info(
+                    "Auth incoming request: method={}, path={}",
+                    request.getMethod(),
+                    SensitiveAuthLogPolicy.safePath(exchange));
             return;
         }
 
         ROUTE_LOG.info("╔══════════════════════════════════════════════════════════════╗");
         ROUTE_LOG.info("║ INCOMING REQUEST                                             ║");
         ROUTE_LOG.info("╠══════════════════════════════════════════════════════════════╣");
-        ROUTE_LOG.info("║ Method: {} | Path: {}",
+        ROUTE_LOG.info(
+                "║ Method: {} | Path: {}",
                 padRight(request.getMethod().name(), 6),
                 request.getPath().value());
         ROUTE_LOG.info("║ Full URI: {}", request.getURI());
@@ -55,8 +55,11 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
 
     private void logPostRoute(ServerWebExchange exchange, ServerHttpRequest request) {
         if (SensitiveAuthLogPolicy.isSensitive(exchange)) {
-            ROUTE_LOG.info("Auth routing decision: method={}, path={}, route={}",
-                    request.getMethod(), SensitiveAuthLogPolicy.safePath(exchange), SensitiveAuthLogPolicy.routeId(exchange));
+            ROUTE_LOG.info(
+                    "Auth routing decision: method={}, path={}, route={}",
+                    request.getMethod(),
+                    SensitiveAuthLogPolicy.safePath(exchange),
+                    SensitiveAuthLogPolicy.routeId(exchange));
             return;
         }
 
@@ -89,7 +92,8 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
             }
 
             ROUTE_LOG.info("╠══════════════════════════════════════════════════════════════╣");
-            ROUTE_LOG.info("║ {} {} → {} {}",
+            ROUTE_LOG.info(
+                    "║ {} {} → {} {}",
                     request.getMethod().name(),
                     padRight(originalPath, 20),
                     targetService,
@@ -101,9 +105,7 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
         ROUTE_LOG.info("╚══════════════════════════════════════════════════════════════╝");
     }
 
-    /**
-     * Route ID에서 서비스 이름 추출
-     */
+    /** Route ID에서 서비스 이름 추출 */
     private String getServiceName(String routeId) {
         return switch (routeId) {
             case "devnogi-auth-server" -> "Auth Server (인증/인가)";
@@ -113,9 +115,7 @@ public class RouteLoggingFilter implements GlobalFilter, Ordered {
         };
     }
 
-    /**
-     * Route ID에서 prefix 추출
-     */
+    /** Route ID에서 prefix 추출 */
     private String getRoutePrefix(String routeId) {
         return switch (routeId) {
             case "devnogi-auth-server" -> "/das";

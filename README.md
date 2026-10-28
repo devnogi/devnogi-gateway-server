@@ -35,6 +35,8 @@ Spring Cloud Gateway 기반의 API Gateway 서버입니다.
 
 ## 로컬 실행
 
+처음 clone한 뒤 `./gradlew installGitHooks`로 Git hook을 설치합니다. 자세한 검사와 포맷 명령은 [개발과 검증](docs/development.md)을 참고하세요.
+
 ### 환경변수 설정
 
 `.env.local.sample`을 참고하여 `.env.local` 파일을 생성합니다.

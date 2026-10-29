@@ -7,7 +7,7 @@
 
 services:
   devnogi-gateway-app:
-    image: ${DOCKER_USERNAME}/${DOCKER_REPO}:${DOCKER_IMAGE_TAG:-prod}
+    image: ${IMAGE_REF:?IMAGE_REF is required}
     pull_policy: always
     container_name: devnogi-gateway-app-prod
     ports:

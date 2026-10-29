@@ -69,10 +69,12 @@ docker-compose -f docker-compose-local.yml up -d
 
 ### CI/CD
 
-GitHub Actions의 배포 workflow는 수동 실행과 환경 승인을 사용합니다. push와 PR 생성만으로는 배포하지 않습니다.
+PR 검증은 공통 Spring workflow를 사용합니다. PR은 운영 배포를 실행하지 않습니다.
 
 - **dev 브랜치**에서 `push-cd-dev.yml` 수동 실행 → development 환경
-- **main 브랜치**에서 `push-cd-prod.yml` 수동 실행 → production 환경
+- **main 브랜치** push 또는 수동 실행 → 검증 후 production 환경에 이미지 digest 배포
+
+운영 Compose는 `IMAGE_REF`를 필수로 사용합니다. 운영 배포 활성화 전 공통 workflow 접근 권한, production 환경 설정과 필수 검사 이름을 확인해야 합니다.
 
 ### Docker 빌드
 

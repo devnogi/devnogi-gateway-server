@@ -69,11 +69,12 @@ docker-compose -f docker-compose-local.yml up -d
 
 ### CI/CD
 
-GitHub Actions는 main에 병합된 SHA를 빌드하고 이미지 digest를 운영에 자동 배포합니다.
+PR 검증은 고정된 공통 Spring workflow를 사용하며 운영 배포를 실행하지 않습니다.
 
-- **main 브랜치** push → `push-cd-prod.yml` 실행 → 운영 서버 배포. 수동 실행은 main에서 복구용으로 사용할 수 있습니다.
-- `main` 대상 PR은 `verify.yml`의 `verify`·`secret-scan` 검사로 검증합니다.
-- 운영 서버의 신뢰된 SSH 호스트 키 항목은 production 환경의 `PROD_SSH_KNOWN_HOSTS` secret으로 등록해야 합니다. 배포 시 대상 호스트 및 포트 일치와 SSH 호스트 키를 검증합니다.
+- `dev`·`main` 대상 PR → 테스트, 정적 검사, 비밀값 검사, Docker 및 Compose 검증
+- **main 브랜치** push 또는 수동 실행 → `gateway-v1.0.0` 이미지 게시, prod2 운영 서버에 image digest 배포·상태 확인, GitHub Release 생성
+
+운영 Compose는 `IMAGE_REF`를 필수로 사용합니다. 공통 workflow 접근 권한과 production 환경 설정을 유지해야 합니다.
 
 ### Docker 빌드
 

@@ -7,7 +7,7 @@
 
 services:
   devnogi-gateway-app:
-    image: ${IMAGE_REF:?Set the immutable image digest}
+    image: ${IMAGE_REF:?IMAGE_REF is required}
     pull_policy: always
     container_name: devnogi-gateway-app-prod
     ports:

@@ -1,110 +1,32 @@
-name: Deploy Gateway to production
+name: Spring production
 on:
   push:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
-  group: gateway-production-deploy
+  group: gateway-production
   cancel-in-progress: false
 jobs:
-  deploy:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    environment: production
+  contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-      - run: chmod +x gradlew && ./gradlew verify --no-daemon
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Build and push commit image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:prod-${{ github.sha }}
-      - name: Validate image digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          case "$DIGEST" in sha256:*) ;; *) exit 1 ;; esac
-          docker buildx imagetools inspect '${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}@${{ steps.build.outputs.digest }}' >/dev/null
-      - name: Prepare SSH
-        env:
-          PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
-          KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
-          SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
-          SERVER_PORT: ${{ secrets.PROD_SERVER_PORT }}
-        run: |
-          umask 077
-          mkdir -p ~/.ssh
-          test -n "$KNOWN_HOSTS" && test -n "$SERVER_HOST" && test -n "$SERVER_PORT" || { echo 'Missing trusted SSH host configuration' >&2; exit 1; }
-          printf '%s\n' "$PRIVATE_KEY" | tr -d '\r' > ~/.ssh/my-key.pem
-          chmod 400 ~/.ssh/my-key.pem
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          ssh-keygen -F "[$SERVER_HOST]:$SERVER_PORT" -f ~/.ssh/known_hosts >/dev/null || { echo 'Trusted host key does not match target' >&2; exit 1; }
-      - name: Stage candidate
-        env:
-          PROD_ENV: ${{ secrets.ENV_FILE_PROD }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
-        run: |
-          umask 077
-          mkdir -p .deploy-secrets
-          printf '%s\n' "$PROD_ENV" > .deploy-secrets/.env.prod
-          printf '%s' "$DOCKER_TOKEN" > .deploy-secrets/.docker-token
-          test -s .deploy-secrets/.env.prod && test -s .deploy-secrets/.docker-token
-          ssh -p '${{ secrets.PROD_SERVER_PORT }}' -i ~/.ssh/my-key.pem '${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }}' 'umask 077; mkdir -p /opt/devnogi-gateway/.candidate'
-          scp -P '${{ secrets.PROD_SERVER_PORT }}' -i ~/.ssh/my-key.pem docker-compose-prod.yml .deploy-secrets/.env.prod .deploy-secrets/.docker-token '${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }}:/opt/devnogi-gateway/.candidate/'
-      - name: Deploy and verify or restore prior version
-        run: |
-          ssh -p '${{ secrets.PROD_SERVER_PORT }}' -i ~/.ssh/my-key.pem '${{ secrets.PROD_SERVER_USER }}@${{ secrets.PROD_SERVER_HOST }}' << 'EOF'
-            set -eu
-            cd /opt/devnogi-gateway/.candidate
-            umask 077
-            export DOCKER_CONFIG="$(mktemp -d)"
-            trap 'rm -f .env.prod .docker-token; rm -rf "$DOCKER_CONFIG"' EXIT
-            docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin < .docker-token
-            export IMAGE_REF='${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}@${{ steps.build.outputs.digest }}'
-            docker pull "$IMAGE_REF"
-            old_id="$(docker inspect devnogi-gateway-app-prod --format '{{.Image}}' 2>/dev/null || true)"
-            old_ref=''
-            if [ -n "$old_id" ]; then
-              old_ref="$(docker image inspect "$old_id" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
-              case "$old_ref" in *@sha256:*) ;; *) echo 'Previous image digest missing' >&2; exit 1 ;; esac
-              test -s /opt/devnogi-gateway/docker-compose-prod.yml && test -s /opt/devnogi-gateway/.env.prod || { echo 'Previous configuration missing' >&2; exit 1; }
-            fi
-            health_ok() {
-              count=0
-              until curl --fail --silent --max-time 3 'http://localhost:${{ secrets.PROD_APP_PORT || 8090 }}/actuator/health' | grep -q '"status":"UP"'; do
-                count=$((count + 1)); [ "$count" -lt 60 ] || return 1; sleep 5
-              done
-            }
-            if ! docker compose -p devnogi-gateway -f docker-compose-prod.yml --env-file .env.prod up -d --no-deps --wait --wait-timeout 360 devnogi-gateway-app || ! health_ok; then
-              echo 'Deployment failed; restoring prior image' >&2
-              if [ -n "$old_ref" ]; then
-                printf 'services:\n  devnogi-gateway-app:\n    image: %s\n' "$old_ref" > rollback.yml
-                IMAGE_REF="$old_ref" docker compose -p devnogi-gateway -f /opt/devnogi-gateway/docker-compose-prod.yml -f "$PWD/rollback.yml" --env-file /opt/devnogi-gateway/.env.prod up -d --no-deps --wait --wait-timeout 360 devnogi-gateway-app || echo 'Rollback failed; operator intervention required' >&2
-              else
-                echo 'No previous container exists; operator intervention required' >&2
-              fi
-              exit 1
-            fi
-            cp .env.prod /opt/devnogi-gateway/.env.prod
-            cp docker-compose-prod.yml /opt/devnogi-gateway/docker-compose-prod.yml
-            printf '%s\n' "$old_ref" > /opt/devnogi-gateway/.previous-image-ref
-            printf '%s\n' "$IMAGE_REF" > /opt/devnogi-gateway/.last-deployed-image-ref
-          EOF
-      - name: Remove runner deployment secrets
-        if: always()
-        run: rm -rf .deploy-secrets
+          node-version: '22'
+      - run: node --test scripts/workflow-contract.test.mjs
+  production:
+    needs: contract
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    uses: devnogi/ci-workflows/.github/workflows/spring-prod.yml@2b4fbf8f7ab7403959f4641fe6d175b832ffe331
+    with:
+      service-profile: base
+      deployment-target: prod2
+      service-name: gateway
+      dockerfile: Dockerfile
+      compose-file: docker-compose-prod.yml
+      health-timeout: '300'
+      platform: linux/amd64
+    secrets: inherit

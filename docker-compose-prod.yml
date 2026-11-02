@@ -39,11 +39,6 @@ services:
       CORS_ALLOWED_HEADERS: ${CORS_ALLOWED_HEADERS:-*}
       CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
 
-      # === Logging Configuration ===
-      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
-      LOG_LEVEL_GATEWAY: ${LOG_LEVEL_GATEWAY:-INFO}
-      LOG_LEVEL_NETTY: ${LOG_LEVEL_NETTY:-INFO}
-
       # === Docker Configuration ===
       DOCKER_USERNAME: ${DOCKER_USERNAME}
       DOCKER_REPO: ${DOCKER_REPO}

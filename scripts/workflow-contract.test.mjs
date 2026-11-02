@@ -31,7 +31,7 @@ test('production caller only permits main push or manual dispatch', () => {
   assert.match(prod, /health-timeout: '300'/);
   assert.match(prod, /platform: linux\/amd64/);
   assert.match(prod, /secrets: inherit/);
-  assert.match(build, /^version = "1\.0\.1-SNAPSHOT"$/m);
+  assert.match(build, /^version = "1\.0\.2-SNAPSHOT"$/m);
 });
 
 test('callers agree on Gateway inputs and Compose requires the image', () => {
@@ -42,4 +42,15 @@ test('callers agree on Gateway inputs and Compose requires the image', () => {
     }
   }
   assert.match(read('docker-compose-prod.yml'), /devnogi-gateway-app:\s*\n\s*image: \$\{IMAGE_REF:\?IMAGE_REF is required\}/);
+});
+
+test('production Gateway logs use the host collector and retain diagnostic cache', () => {
+  const compose = read('docker-compose-prod.yml');
+  const app = compose.split('\n  autoheal:')[0];
+  for (const line of ['driver: "syslog"', 'syslog-address: "unixgram:///dev/log"',
+    'syslog-format: "rfc5424micro"', 'tag: "memonogi-gateway"', 'mode: "non-blocking"',
+    'max-buffer-size: "4m"', 'cache-disabled: "false"', 'cache-max-size: "20m"',
+    'cache-max-file: "5"', 'app-logs:/app/logs']) {
+    assert.ok(app.includes(line), line);
+  }
 });

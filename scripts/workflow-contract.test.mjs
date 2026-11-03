@@ -8,6 +8,10 @@ const ci = read('.github/workflows/verify.yml');
 const prod = read('.github/workflows/push-cd-prod.yml');
 const build = read('build.gradle.kts');
 
+test('production Gateway port is bound to loopback', () => {
+  assert.match(read('docker-compose-prod.yml'), /ports:\s*\n\s*- "127\.0\.0\.1:\$\{SERVER_PORT\}:\$\{SERVER_PORT\}"/);
+});
+
 test('PR caller targets the approved reusable Gateway CI', () => {
   assert.match(ci, /pull_request:\s*\n\s*branches: \[dev, main\]/);
   assert.match(ci, /workflow_dispatch:/);

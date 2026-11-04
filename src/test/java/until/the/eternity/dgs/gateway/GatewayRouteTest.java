@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.context.ActiveProfiles;
@@ -334,6 +335,78 @@ public class GatewayRouteTest {
                     .contains("/das/**", "devnogi-auth-server")
                     .doesNotContain(proof, email);
         }
+    }
+
+    @Test
+    @DisplayName("256KB를 초과하는 Auth multipart 요청도 본문 손실 없이 전달한다")
+    void largeSocialSignupMultipartIsForwardedWithoutBuffering() throws InterruptedException {
+        byte[] profileImage = new byte[300 * 1024];
+        ByteArrayResource imageResource =
+                new ByteArrayResource(profileImage) {
+                    @Override
+                    public String getFilename() {
+                        return "profile.png";
+                    }
+                };
+        String response = "{\"id\":1}";
+        mockAuthService.enqueue(
+                new MockResponse()
+                        .setResponseCode(200)
+                        .setHeader("Content-Type", "application/json")
+                        .setBody(response));
+
+        webTestClient
+                .post()
+                .uri("/das/api/auth/signup/social")
+                .body(
+                        BodyInserters.fromMultipartData("signupProof", "synthetic-proof")
+                                .with("file", imageResource))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .isEqualTo(response);
+
+        RecordedRequest forwarded = mockAuthService.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(forwarded).isNotNull();
+        assertThat(forwarded.getPath()).isEqualTo("/api/auth/signup/social");
+        assertThat(forwarded.getHeader("Content-Type")).contains("multipart/form-data");
+        assertThat(forwarded.getBodySize()).isGreaterThan(profileImage.length);
+    }
+
+    @Test
+    @DisplayName("256KB를 초과하는 일반 multipart 요청도 본문 손실 없이 전달한다")
+    void largeNonAuthMultipartIsForwardedWithoutBuffering() throws InterruptedException {
+        byte[] attachment = new byte[300 * 1024];
+        ByteArrayResource attachmentResource =
+                new ByteArrayResource(attachment) {
+                    @Override
+                    public String getFilename() {
+                        return "attachment.png";
+                    }
+                };
+        String response = "{\"id\":1}";
+        mockOpenApiBatchService.enqueue(
+                new MockResponse()
+                        .setResponseCode(200)
+                        .setHeader("Content-Type", "application/json")
+                        .setBody(response));
+
+        webTestClient
+                .post()
+                .uri("/api/statics/upload")
+                .body(BodyInserters.fromMultipartData("file", attachmentResource))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .isEqualTo(response);
+
+        RecordedRequest forwarded = mockOpenApiBatchService.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(forwarded).isNotNull();
+        assertThat(forwarded.getPath()).isEqualTo("/upload");
+        assertThat(forwarded.getHeader("Content-Type")).contains("multipart/form-data");
+        assertThat(forwarded.getBodySize()).isGreaterThan(attachment.length);
     }
 
     @Test

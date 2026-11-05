@@ -32,7 +32,7 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
             RES_LOG.info(
                     "Auth response: method={}, path={}, route={}, status={}",
                     request.getMethod(),
-                    SensitiveAuthLogPolicy.safePath(exchange),
+                    SensitiveAuthLogPolicy.safeRequestPath(exchange),
                     SensitiveAuthLogPolicy.routeId(exchange),
                     response.getStatusCode());
             return;
@@ -71,15 +71,9 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
 
         // Set-Cookie 헤더 (쿠키 설정 확인)
         if (response.getHeaders().containsKey("Set-Cookie")) {
-            RES_LOG.info("--- Set-Cookie Headers ---");
-            response.getHeaders()
-                    .get("Set-Cookie")
-                    .forEach(
-                            cookie -> {
-                                // 쿠키 값 마스킹
-                                String maskedCookie = maskCookieValue(cookie);
-                                RES_LOG.info("  {}", maskedCookie);
-                            });
+            RES_LOG.info(
+                    "Set-Cookie headers: {}",
+                    response.getHeaders().getOrEmpty("Set-Cookie").size());
         }
 
         // CORS 헤더
@@ -109,47 +103,13 @@ public class ResponseLoggingFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // 전체 응답 헤더 (DEBUG 레벨)
-        RES_LOG.debug("--- All Response Headers ---");
-        response.getHeaders()
-                .forEach(
-                        (key, values) ->
-                                RES_LOG.debug("  {} = {}", key, String.join(", ", values)));
+        RES_LOG.debug("Response header names: {}", response.getHeaders().keySet());
 
         if (isError) {
             RES_LOG.error("==========================================");
         } else {
             RES_LOG.info("======================================");
         }
-    }
-
-    /** Set-Cookie 헤더의 토큰 값 마스킹 */
-    private static String maskCookieValue(String cookieHeader) {
-        if (cookieHeader == null) return null;
-
-        // access_token=xxx 또는 refresh_token=xxx 형태의 값 마스킹
-        if (cookieHeader.toLowerCase().contains("token=")) {
-            int eqIndex = cookieHeader.indexOf("=");
-            int semicolonIndex = cookieHeader.indexOf(";");
-            if (eqIndex > 0) {
-                String name = cookieHeader.substring(0, eqIndex + 1);
-                String value;
-                String rest = "";
-
-                if (semicolonIndex > 0) {
-                    value = cookieHeader.substring(eqIndex + 1, semicolonIndex);
-                    rest = cookieHeader.substring(semicolonIndex);
-                } else {
-                    value = cookieHeader.substring(eqIndex + 1);
-                }
-
-                String maskedValue =
-                        value.length() > 20 ? value.substring(0, 20) + "...***" : value;
-
-                return name + maskedValue + rest;
-            }
-        }
-        return cookieHeader;
     }
 
     @Override

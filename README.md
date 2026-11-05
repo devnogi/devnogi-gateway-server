@@ -23,7 +23,8 @@ Spring Cloud Gateway 기반의 API Gateway 서버입니다.
 ### JWT 인증
 
 - Authorization 헤더 (`Bearer {token}`) 또는 쿠키 (`access_token`)에서 토큰 추출
-- ACCESS 토큰만 허용 (REFRESH 토큰은 인증 서버에서만 사용)
+- Community 공개 요청은 토큰 없이 통과하고, 토큰이 있으면 ACCESS 토큰만 허용
+- 잘못되거나 만료된 토큰과 REFRESH 토큰은 401 응답
 - 클라이언트가 보낸 `X-Auth-*` 헤더 자동 제거 (보안)
 
 ### CORS

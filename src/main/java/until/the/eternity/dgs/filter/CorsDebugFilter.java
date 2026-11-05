@@ -24,7 +24,7 @@ public class CorsDebugFilter implements GlobalFilter, Ordered {
             log.info(
                     "[CORS-DEBUG] Auth request: method={}, path={}",
                     method,
-                    SensitiveAuthLogPolicy.safePath(exchange));
+                    SensitiveAuthLogPolicy.safeRequestPath(exchange));
             return chain.filter(exchange)
                     .then(
                             Mono.fromRunnable(

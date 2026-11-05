@@ -9,11 +9,9 @@ import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBod
 import org.springframework.cloud.gateway.route.Route;
 import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
 import org.springframework.core.Ordered;
-import org.springframework.http.HttpCookie;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -30,7 +28,7 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
             REQ_LOG.info(
                     "Auth request: method={}, path={}, route={}",
                     request.getMethod(),
-                    SensitiveAuthLogPolicy.safePath(exchange),
+                    SensitiveAuthLogPolicy.safeRequestPath(exchange),
                     SensitiveAuthLogPolicy.routeId(exchange));
             return;
         }
@@ -61,37 +59,14 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
         // 인증 관련 헤더
         REQ_LOG.info("--- Authentication Headers ---");
         String authHeader = request.getHeaders().getFirst("Authorization");
-        if (authHeader != null) {
-            // 토큰 마스킹 (앞 30자만 표시)
-            String maskedAuth =
-                    authHeader.length() > 37 ? authHeader.substring(0, 37) + "...***" : authHeader;
-            REQ_LOG.info("Authorization: {}", maskedAuth);
-        } else {
-            REQ_LOG.info("Authorization: (empty)");
-        }
+        REQ_LOG.info("Authorization: {}", authHeader != null ? "present" : "absent");
 
         // 쿠키 정보
         REQ_LOG.info("--- Cookie Information ---");
-        MultiValueMap<String, HttpCookie> cookies = request.getCookies();
-        if (cookies.isEmpty()) {
+        if (request.getCookies().isEmpty()) {
             REQ_LOG.info("Cookies: (none)");
         } else {
-            REQ_LOG.info("Cookie count: {}", cookies.size());
-            cookies.forEach(
-                    (name, cookieList) -> {
-                        for (HttpCookie cookie : cookieList) {
-                            String value = cookie.getValue();
-                            // 민감한 쿠키 마스킹
-                            if (name.toLowerCase().contains("token")
-                                    || name.toLowerCase().contains("session")) {
-                                value =
-                                        value.length() > 20
-                                                ? value.substring(0, 20) + "...***"
-                                                : value;
-                            }
-                            REQ_LOG.info("  {} = {}", name, value);
-                        }
-                    });
+            REQ_LOG.info("Cookie names: {}", request.getCookies().keySet());
         }
 
         // 주요 헤더
@@ -106,10 +81,7 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
         String xAuthUsername = request.getHeaders().getFirst("X-Auth-Username");
         String xAuthRoles = request.getHeaders().getFirst("X-Auth-Roles");
         if (xAuthUserId != null || xAuthUsername != null || xAuthRoles != null) {
-            REQ_LOG.info("--- Internal Auth Headers (from JWT) ---");
-            REQ_LOG.info("X-Auth-User-Id: {}", xAuthUserId);
-            REQ_LOG.info("X-Auth-Username: {}", xAuthUsername);
-            REQ_LOG.info("X-Auth-Roles: {}", xAuthRoles);
+            REQ_LOG.info("Internal auth context: present");
         }
 
         // 요청 바디
@@ -120,12 +92,7 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
             REQ_LOG.info("Body: {}", truncatedBody);
         }
 
-        // 전체 헤더 (DEBUG 레벨)
-        REQ_LOG.debug("--- All Headers ---");
-        request.getHeaders()
-                .forEach(
-                        (key, values) ->
-                                REQ_LOG.debug("  {} = {}", key, String.join(", ", values)));
+        REQ_LOG.debug("Header names: {}", request.getHeaders().keySet());
 
         REQ_LOG.info("======================================");
     }

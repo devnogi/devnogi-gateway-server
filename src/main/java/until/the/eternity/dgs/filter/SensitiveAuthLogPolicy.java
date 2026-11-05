@@ -14,16 +14,16 @@ final class SensitiveAuthLogPolicy {
         return safePath(exchange) != null;
     }
 
+    static String safeRequestPath(ServerWebExchange exchange) {
+        String protectedPath = safePath(exchange);
+        return protectedPath != null ? protectedPath : normalizedPath(exchange);
+    }
+
     static String safePath(ServerWebExchange exchange) {
-        // PathSegment.valueToMatch excludes matrix parameters, which may contain credentials.
-        String path =
-                exchange.getRequest().getPath().elements().stream()
-                        .filter(PathContainer.PathSegment.class::isInstance)
-                        .map(PathContainer.PathSegment.class::cast)
-                        .map(PathContainer.PathSegment::valueToMatch)
-                        .collect(Collectors.joining("/", "/", ""));
+        String path = normalizedPath(exchange);
         if (hasPathPrefix(path, "/das")) return "/das/**";
         if (hasPathPrefix(path, "/api/auth")) return "/api/auth/**";
+        if (hasPathPrefix(path, "/dcs")) return "/dcs/**";
         if (hasPathPrefix(path, "/login/oauth2/code")) return "/login/oauth2/code/**";
         if (hasPathPrefix(path, "/oauth2/authorization")) return "/oauth2/authorization/**";
 
@@ -31,6 +31,15 @@ final class SensitiveAuthLogPolicy {
         return route != null && route.getId().startsWith("devnogi-auth-server")
                 ? "auth-route"
                 : null;
+    }
+
+    private static String normalizedPath(ServerWebExchange exchange) {
+        // PathSegment.valueToMatch excludes matrix parameters, which may contain credentials.
+        return exchange.getRequest().getPath().elements().stream()
+                .filter(PathContainer.PathSegment.class::isInstance)
+                .map(PathContainer.PathSegment.class::cast)
+                .map(PathContainer.PathSegment::valueToMatch)
+                .collect(Collectors.joining("/", "/", ""));
     }
 
     static String routeId(ServerWebExchange exchange) {

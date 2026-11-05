@@ -40,6 +40,18 @@ spring:
           filters:
             - StripPrefix=2
 
+        - id: devnogi-community-server-production-route
+          uri: lb://community-service
+          predicates:
+            - Path=/dcs/**
+          filters:
+            - name: JwtAuthentication
+              args:
+                secretKey: c3ludGhldGljLXRlc3Qta2V5LXdpdGgtYXQtbGVhc3QtMzItYnl0ZXM=
+                issuer: synthetic-issuer
+                required: false
+            - StripPrefix=1
+
         - id: devnogi-community-server
           uri: lb://community-service
           predicates:

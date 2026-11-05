@@ -7,6 +7,7 @@ const pin = '698f7b25995156af3f2df7f17171e5c3f5e77d76';
 const ci = read('.github/workflows/verify.yml');
 const prod = read('.github/workflows/push-cd-prod.yml');
 const build = read('build.gradle.kts');
+const application = read('src/main/resources/application.yml');
 
 test('production Gateway port is bound to loopback', () => {
   assert.match(read('docker-compose-prod.yml'), /ports:\s*\n\s*- "127\.0\.0\.1:\$\{SERVER_PORT\}:\$\{SERVER_PORT\}"/);
@@ -35,7 +36,7 @@ test('production caller only permits main push or manual dispatch', () => {
   assert.match(prod, /health-timeout: '300'/);
   assert.match(prod, /platform: linux\/amd64/);
   assert.match(prod, /secrets: inherit/);
-  assert.match(build, /^version = "1\.0\.4-SNAPSHOT"$/m);
+  assert.match(build, /^version = "1\.0\.5-SNAPSHOT"$/m);
 });
 
 test('callers agree on Gateway inputs and Compose requires the image', () => {
@@ -57,4 +58,14 @@ test('production Gateway logs use the host collector and retain diagnostic cache
     'cache-max-file: "5"', 'app-logs:/app/logs']) {
     assert.ok(app.includes(line), line);
   }
+});
+
+test('production Community route applies optional JWT authentication', () => {
+  const communityRoute = application.split('management:')[0].split('# Community Server')[1];
+  assert.match(communityRoute, /Path=\/dcs\/\*\*/);
+  assert.match(communityRoute, /name: JwtAuthentication/);
+  assert.match(communityRoute, /secretKey: \$\{JWT_SECRET_KEY\}/);
+  assert.match(communityRoute, /issuer: \$\{JWT_ISSUER\}/);
+  assert.match(communityRoute, /required: false/);
+  assert.match(communityRoute, /StripPrefix=1/);
 });

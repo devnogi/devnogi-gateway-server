@@ -53,6 +53,11 @@ spring:
           predicates:
             - Path=/dcs/**
           filters:
+            - name: JwtAuthentication
+              args:
+                secretKey: ${JWT_SECRET_KEY}
+                issuer: ${JWT_ISSUER}
+                required: false
             - StripPrefix=1
 
 management:

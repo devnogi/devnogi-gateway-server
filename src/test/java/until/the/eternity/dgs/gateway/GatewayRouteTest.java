@@ -1,15 +1,19 @@
 package until.the.eternity.dgs.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -34,6 +38,13 @@ import until.the.eternity.dgs.filter.RouteLoggingFilter;
 @ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public class GatewayRouteTest {
+    private static final String TEST_ISSUER = "synthetic-issuer";
+    private static final String TEST_SECRET =
+            Base64.getEncoder()
+                    .encodeToString(
+                            "synthetic-test-key-with-at-least-32-bytes"
+                                    .getBytes(StandardCharsets.UTF_8));
+
     @Autowired private ApplicationContext context;
 
     private WebTestClient webTestClient;
@@ -44,7 +55,10 @@ public class GatewayRouteTest {
     private static MockWebServer mockOpenApiBatchService;
 
     @BeforeEach
-    void setUpClient() {
+    void setUpClient() throws InterruptedException {
+        while (mockCommunityService.takeRequest(10, TimeUnit.MILLISECONDS) != null) {
+            // 각 테스트는 자신이 전달한 Community 요청만 검증한다.
+        }
         // responseTimeout을 10초로 설정 (기본값 5초, Retry 최대 시간이 5초를 초과함)
         this.webTestClient =
                 WebTestClient.bindToApplicationContext(this.context)
@@ -112,6 +126,7 @@ public class GatewayRouteTest {
     @Test
     @DisplayName("Default Filter (Retry)가 BAD_GATEWAY 상태코드에서 3번 재시도해야 한다")
     void defaultRetryFilterTest() throws InterruptedException {
+        int requestCountBefore = mockCommunityService.getRequestCount();
         // Given: mock CommunityService가 처음 3번은 502(BAD_GATEWAY)를, 마지막에 200(OK)을 응답하도록 설정
         // Retry(retries: 3)는 최초 1회 + 재시도 3회 = 총 4회 시도
         mockCommunityService.enqueue(
@@ -135,7 +150,100 @@ public class GatewayRouteTest {
                 .isEqualTo("Finally successful response");
 
         // Then: mock CommunityService가 총 4번의 요청을 받았는지 확인
-        assertThat(mockCommunityService.getRequestCount()).isEqualTo(4);
+        assertThat(mockCommunityService.getRequestCount() - requestCountBefore).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("운영 Community 공개 GET은 토큰 없이 전달하고 위조 내부 헤더를 제거한다")
+    void publicCommunityGetPassesWithoutTokenAndStripsSpoofedHeaders() throws InterruptedException {
+        mockCommunityService.enqueue(
+                new MockResponse()
+                        .setResponseCode(200)
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("{\"ok\":true}"));
+
+        webTestClient
+                .get()
+                .uri("/dcs/api/posts")
+                .header("X-Auth-User-Id", "999")
+                .header("X-Auth-Username", "spoofed@example.test")
+                .header("X-Auth-Roles", "ADMIN")
+                .exchange()
+                .expectStatus()
+                .isOk();
+
+        RecordedRequest forwarded = mockCommunityService.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(forwarded).isNotNull();
+        assertThat(forwarded.getPath()).isEqualTo("/api/posts");
+        assertThat(forwarded.getHeader("X-Auth-User-Id")).isNull();
+        assertThat(forwarded.getHeader("X-Auth-Username")).isNull();
+        assertThat(forwarded.getHeader("X-Auth-Roles")).isNull();
+    }
+
+    @Test
+    @DisplayName("운영 Community POST는 유효한 ACCESS 토큰을 내부 인증 헤더로 변환한다")
+    void authenticatedCommunityPostInjectsTrustedContext() throws InterruptedException {
+        String username = "community-user@example.test";
+        String token = createToken("ACCESS", username);
+        mockCommunityService.enqueue(
+                new MockResponse()
+                        .setResponseCode(201)
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("{\"id\":1}"));
+
+        try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
+            webTestClient
+                    .post()
+                    .uri("/dcs/api/posts")
+                    .header("Authorization", "Bearer " + token)
+                    .header("X-Auth-User-Id", "999")
+                    .header("X-Auth-Username", "spoofed@example.test")
+                    .header("X-Auth-Roles", "ADMIN")
+                    .bodyValue("{}")
+                    .exchange()
+                    .expectStatus()
+                    .isCreated();
+
+            RecordedRequest forwarded = mockCommunityService.takeRequest(1, TimeUnit.SECONDS);
+            assertThat(forwarded).isNotNull();
+            assertThat(forwarded.getPath()).isEqualTo("/api/posts");
+            assertThat(forwarded.getHeader("X-Auth-User-Id")).isEqualTo("42");
+            assertThat(forwarded.getHeader("X-Auth-Username")).isEqualTo(username);
+            assertThat(forwarded.getHeader("X-Auth-Roles")).isEqualTo("USER");
+            assertThat(logs.output())
+                    .contains("/dcs/**", "result=authenticated", "result=injected")
+                    .doesNotContain(token, username, "spoofed@example.test");
+        }
+    }
+
+    @Test
+    @DisplayName("운영 Community 라우트는 잘못된 토큰과 REFRESH 토큰을 거부한다")
+    void communityRouteRejectsInvalidAndRefreshTokens() throws InterruptedException {
+        webTestClient
+                .get()
+                .uri("/dcs/api/posts")
+                .header("Authorization", "Bearer invalid-token")
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
+
+        webTestClient
+                .get()
+                .uri("/dcs/api/posts")
+                .header("Authorization", "Bearer " + createToken("REFRESH", "refresh@example.test"))
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
+
+        webTestClient
+                .get()
+                .uri("/dcs/api/posts")
+                .header("Authorization", "Basic malformed-credentials")
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
+
+        assertThat(mockCommunityService.takeRequest(200, TimeUnit.MILLISECONDS)).isNull();
     }
 
     @Test
@@ -460,12 +568,8 @@ public class GatewayRouteTest {
                                 .header("Authorization", "Bearer " + tokenSecret));
         JwtAuthenticationGatewayFilterFactory.Config config =
                 new JwtAuthenticationGatewayFilterFactory.Config();
-        config.setSecretKey(
-                Base64.getEncoder()
-                        .encodeToString(
-                                "synthetic-test-key-with-at-least-32-bytes"
-                                        .getBytes(StandardCharsets.UTF_8)));
-        config.setIssuer("synthetic-issuer");
+        config.setSecretKey(TEST_SECRET);
+        config.setIssuer(TEST_ISSUER);
 
         try (CapturedGatewayLogs logs = new CapturedGatewayLogs()) {
             new JwtAuthenticationGatewayFilterFactory()
@@ -486,6 +590,32 @@ public class GatewayRouteTest {
     }
 
     @Test
+    @DisplayName("JWT secret 설정 오류는 route 초기화 시 명시적으로 실패한다")
+    void invalidJwtSecretFailsRouteInitialization() {
+        JwtAuthenticationGatewayFilterFactory.Config config =
+                new JwtAuthenticationGatewayFilterFactory.Config();
+        config.setSecretKey("not-base64");
+        config.setIssuer(TEST_ISSUER);
+
+        assertThatThrownBy(() -> new JwtAuthenticationGatewayFilterFactory().apply(config))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT secret key configuration is invalid");
+    }
+
+    @Test
+    @DisplayName("JWT issuer 누락은 route 초기화 시 명시적으로 실패한다")
+    void missingJwtIssuerFailsRouteInitialization() {
+        JwtAuthenticationGatewayFilterFactory.Config config =
+                new JwtAuthenticationGatewayFilterFactory.Config();
+        config.setSecretKey(TEST_SECRET);
+        config.setIssuer(" ");
+
+        assertThatThrownBy(() -> new JwtAuthenticationGatewayFilterFactory().apply(config))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT issuer is required");
+    }
+
+    @Test
     @DisplayName("비인증 경로의 기존 상세 라우팅 로그를 유지한다")
     void nonAuthRouteRetainsDetailedLog() {
         MockServerWebExchange exchange =
@@ -495,6 +625,20 @@ public class GatewayRouteTest {
             new RouteLoggingFilter().filter(exchange, ignored -> Mono.empty()).block();
             assertThat(logs.output()).contains("Full URI: /oab/items?name=ordinary-item");
         }
+    }
+
+    private static String createToken(String type, String subject) {
+        Date now = new Date();
+        return Jwts.builder()
+                .issuer(TEST_ISSUER)
+                .subject(subject)
+                .claim("userId", 42L)
+                .claim("role", "USER")
+                .claim("type", type)
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + Duration.ofMinutes(5).toMillis()))
+                .signWith(Keys.hmacShaKeyFor(Base64.getDecoder().decode(TEST_SECRET)))
+                .compact();
     }
 
     private static final class CapturedGatewayLogs implements AutoCloseable {

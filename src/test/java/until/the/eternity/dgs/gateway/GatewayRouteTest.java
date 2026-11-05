@@ -1,6 +1,7 @@
 package until.the.eternity.dgs.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -586,6 +587,32 @@ public class GatewayRouteTest {
                             pathSecret.substring(0, 12),
                             tokenSecret.substring(0, 12));
         }
+    }
+
+    @Test
+    @DisplayName("JWT secret 설정 오류는 route 초기화 시 명시적으로 실패한다")
+    void invalidJwtSecretFailsRouteInitialization() {
+        JwtAuthenticationGatewayFilterFactory.Config config =
+                new JwtAuthenticationGatewayFilterFactory.Config();
+        config.setSecretKey("not-base64");
+        config.setIssuer(TEST_ISSUER);
+
+        assertThatThrownBy(() -> new JwtAuthenticationGatewayFilterFactory().apply(config))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT secret key configuration is invalid");
+    }
+
+    @Test
+    @DisplayName("JWT issuer 누락은 route 초기화 시 명시적으로 실패한다")
+    void missingJwtIssuerFailsRouteInitialization() {
+        JwtAuthenticationGatewayFilterFactory.Config config =
+                new JwtAuthenticationGatewayFilterFactory.Config();
+        config.setSecretKey(TEST_SECRET);
+        config.setIssuer(" ");
+
+        assertThatThrownBy(() -> new JwtAuthenticationGatewayFilterFactory().apply(config))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT issuer is required");
     }
 
     @Test

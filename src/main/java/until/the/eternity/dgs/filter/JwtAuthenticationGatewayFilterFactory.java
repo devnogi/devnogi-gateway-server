@@ -1,12 +1,9 @@
 package until.the.eternity.dgs.filter;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
-import io.jsonwebtoken.security.SignatureException;
 import java.util.Base64;
 import javax.crypto.SecretKey;
 import lombok.Getter;
@@ -34,6 +31,8 @@ public class JwtAuthenticationGatewayFilterFactory
 
     @Override
     public GatewayFilter apply(Config config) {
+        SecretKey secretKey = validatedSecretKey(config);
+        String issuer = validatedIssuer(config);
         GatewayFilter filter =
                 (exchange, chain) -> {
                     ServerHttpRequest request = exchange.getRequest();
@@ -91,7 +90,7 @@ public class JwtAuthenticationGatewayFilterFactory
                     }
 
                     // Step 3: JWT 토큰 검증
-                    Claims claims = validateToken(token, config);
+                    Claims claims = validateToken(token, secretKey, issuer);
                     if (claims == null) {
                         log.warn(
                                 "[JWT] requestId={} method={} path={} tokenSource={} result=unauthorized reason=invalid",
@@ -174,35 +173,39 @@ public class JwtAuthenticationGatewayFilterFactory
     }
 
     /** Secret Key 생성 */
-    private SecretKey getSecretKey(Config config) {
-        byte[] keyBytes = Base64.getDecoder().decode(config.getSecretKey());
-        return Keys.hmacShaKeyFor(keyBytes);
+    private SecretKey validatedSecretKey(Config config) {
+        if (config.getSecretKey() == null || config.getSecretKey().isBlank()) {
+            throw new IllegalStateException("JWT secret key is required");
+        }
+        try {
+            byte[] keyBytes = Base64.getDecoder().decode(config.getSecretKey());
+            return Keys.hmacShaKeyFor(keyBytes);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("JWT secret key configuration is invalid", exception);
+        }
+    }
+
+    private String validatedIssuer(Config config) {
+        if (config.getIssuer() == null || config.getIssuer().isBlank()) {
+            throw new IllegalStateException("JWT issuer is required");
+        }
+        return config.getIssuer();
     }
 
     /** JWT 토큰 검증 */
-    private Claims validateToken(String token, Config config) {
+    private Claims validateToken(String token, SecretKey secretKey, String issuer) {
         try {
-            return extractAllClaims(token, config);
-        } catch (SignatureException e) {
-            return null;
-        } catch (MalformedJwtException e) {
-            return null;
-        } catch (ExpiredJwtException e) {
-            return null;
-        } catch (UnsupportedJwtException e) {
-            return null;
-        } catch (IllegalArgumentException e) {
-            return null;
-        } catch (Exception e) {
+            return extractAllClaims(token, secretKey, issuer);
+        } catch (JwtException | IllegalArgumentException exception) {
             return null;
         }
     }
 
     /** 토큰에서 모든 Claims 추출 */
-    private Claims extractAllClaims(String token, Config config) {
+    private Claims extractAllClaims(String token, SecretKey secretKey, String issuer) {
         return Jwts.parser()
-                .verifyWith(getSecretKey(config))
-                .requireIssuer(config.getIssuer())
+                .verifyWith(secretKey)
+                .requireIssuer(issuer)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

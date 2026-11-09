@@ -45,6 +45,11 @@ spring:
           predicates:
             - Path=/oab/**
           filters:
+            - name: JwtAuthentication
+              args:
+                secretKey: ${JWT_SECRET_KEY}
+                issuer: ${JWT_ISSUER}
+                required: false
             - StripPrefix=1
 
         # Community Server - 게시판/댓글/사용자 관리

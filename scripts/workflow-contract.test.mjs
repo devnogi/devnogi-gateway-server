@@ -36,7 +36,7 @@ test('production caller only permits main push or manual dispatch', () => {
   assert.match(prod, /health-timeout: '300'/);
   assert.match(prod, /platform: linux\/amd64/);
   assert.match(prod, /secrets: inherit/);
-  assert.match(build, /^version = "1\.0\.5-SNAPSHOT"$/m);
+  assert.match(build, /^version = "1\.0\.6-SNAPSHOT"$/m);
 });
 
 test('callers agree on Gateway inputs and Compose requires the image', () => {
@@ -68,4 +68,14 @@ test('production Community route applies optional JWT authentication', () => {
   assert.match(communityRoute, /issuer: \$\{JWT_ISSUER\}/);
   assert.match(communityRoute, /required: false/);
   assert.match(communityRoute, /StripPrefix=1/);
+});
+
+test('production Open API Batch route applies optional JWT authentication', () => {
+  const batchRoute = application.split('# Open API Batch Server')[1].split('# Community Server')[0];
+  assert.match(batchRoute, /Path=\/oab\/\*\*/);
+  assert.match(batchRoute, /name: JwtAuthentication/);
+  assert.match(batchRoute, /secretKey: \$\{JWT_SECRET_KEY\}/);
+  assert.match(batchRoute, /issuer: \$\{JWT_ISSUER\}/);
+  assert.match(batchRoute, /required: false/);
+  assert.match(batchRoute, /StripPrefix=1/);
 });

@@ -33,6 +33,18 @@ spring:
           filters:
             - StripPrefix=2
 
+        - id: open-api-batch-server-production-route
+          uri: lb://open-api-batch-service
+          predicates:
+            - Path=/oab/**
+          filters:
+            - name: JwtAuthentication
+              args:
+                secretKey: c3ludGhldGljLXRlc3Qta2V5LXdpdGgtYXQtbGVhc3QtMzItYnl0ZXM=
+                issuer: synthetic-issuer
+                required: false
+            - StripPrefix=1
+
         - id: open-api-batch-server
           uri: lb://open-api-batch-service
           predicates:

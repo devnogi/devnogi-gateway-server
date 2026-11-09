@@ -217,6 +217,60 @@ public class GatewayRouteTest {
     }
 
     @Test
+    @DisplayName("운영 Open API Batch 공개 GET은 토큰 없이 전달하고 위조 내부 헤더를 제거한다")
+    void publicOpenApiBatchGetPassesWithoutTokenAndStripsSpoofedHeaders()
+            throws InterruptedException {
+        mockOpenApiBatchService.enqueue(
+                new MockResponse()
+                        .setResponseCode(200)
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("{\"ok\":true}"));
+
+        webTestClient
+                .get()
+                .uri("/oab/api/item-infos")
+                .header("X-Auth-User-Id", "999")
+                .header("X-Auth-Username", "spoofed@example.test")
+                .header("X-Auth-Roles", "ADMIN")
+                .exchange()
+                .expectStatus()
+                .isOk();
+
+        RecordedRequest forwarded = mockOpenApiBatchService.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(forwarded).isNotNull();
+        assertThat(forwarded.getPath()).isEqualTo("/api/item-infos");
+        assertThat(forwarded.getHeader("X-Auth-User-Id")).isNull();
+        assertThat(forwarded.getHeader("X-Auth-Username")).isNull();
+        assertThat(forwarded.getHeader("X-Auth-Roles")).isNull();
+    }
+
+    @Test
+    @DisplayName("운영 Open API Batch POST는 관리자 ACCESS 토큰을 내부 인증 헤더로 변환한다")
+    void authenticatedOpenApiBatchPostInjectsAdminContext() throws InterruptedException {
+        String username = "batch-admin@example.test";
+        String token = createToken("ACCESS", username, "ADMIN");
+        mockOpenApiBatchService.enqueue(new MockResponse().setResponseCode(200));
+
+        webTestClient
+                .post()
+                .uri("/oab/api/item-infos/sync")
+                .header("Authorization", "Bearer " + token)
+                .header("X-Auth-User-Id", "999")
+                .header("X-Auth-Username", "spoofed@example.test")
+                .header("X-Auth-Roles", "USER")
+                .exchange()
+                .expectStatus()
+                .isOk();
+
+        RecordedRequest forwarded = mockOpenApiBatchService.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(forwarded).isNotNull();
+        assertThat(forwarded.getPath()).isEqualTo("/api/item-infos/sync");
+        assertThat(forwarded.getHeader("X-Auth-User-Id")).isEqualTo("42");
+        assertThat(forwarded.getHeader("X-Auth-Username")).isEqualTo(username);
+        assertThat(forwarded.getHeader("X-Auth-Roles")).isEqualTo("ADMIN");
+    }
+
+    @Test
     @DisplayName("운영 Community 라우트는 잘못된 토큰과 REFRESH 토큰을 거부한다")
     void communityRouteRejectsInvalidAndRefreshTokens() throws InterruptedException {
         webTestClient
@@ -628,12 +682,16 @@ public class GatewayRouteTest {
     }
 
     private static String createToken(String type, String subject) {
+        return createToken(type, subject, "USER");
+    }
+
+    private static String createToken(String type, String subject, String role) {
         Date now = new Date();
         return Jwts.builder()
                 .issuer(TEST_ISSUER)
                 .subject(subject)
                 .claim("userId", 42L)
-                .claim("role", "USER")
+                .claim("role", role)
                 .claim("type", type)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + Duration.ofMinutes(5).toMillis()))
